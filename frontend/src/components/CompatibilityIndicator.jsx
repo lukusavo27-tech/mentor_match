@@ -1,0 +1,1 @@
+export default function CompatibilityIndicator({ score }) { return <div className="rounded-xl bg-blue-50 px-3 py-2 text-center" aria-label={`${score}% compatibility`}><div className="text-lg font-black text-blue-700">{score}%</div><div className="text-[9px] font-bold uppercase tracking-wider text-blue-500">Match</div></div>; }

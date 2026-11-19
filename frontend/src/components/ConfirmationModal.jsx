@@ -1,0 +1,4 @@
+export default function ConfirmationModal({ open, title, children, confirmLabel = "Confirm", onConfirm, onCancel }) {
+  if (!open) return null;
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4" role="presentation"><section role="dialog" aria-modal="true" aria-labelledby="confirmation-title" className="glass w-full max-w-md rounded-2xl p-6"><h2 id="confirmation-title" className="text-lg font-extrabold">{title}</h2><div className="mt-2 text-sm text-slate-600">{children}</div><div className="mt-6 flex justify-end gap-2"><button onClick={onCancel} className="rounded-xl border border-blue-100 bg-white px-4 py-2.5 text-sm font-bold text-slate-600">Cancel</button><button onClick={onConfirm} className="rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-bold text-white">{confirmLabel}</button></div></section></div>;
+}

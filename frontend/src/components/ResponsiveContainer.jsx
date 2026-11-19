@@ -1,0 +1,1 @@
+export default function ResponsiveContainer({ children, className = "" }) { return <main className={`page-bg min-h-screen p-3 sm:p-5 lg:p-6 ${className}`}><div className="mx-auto max-w-[1500px]">{children}</div></main>; }

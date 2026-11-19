@@ -1,0 +1,1 @@
+export default function Calendar({ value, onChange, min }) { return <label className="block text-xs font-bold text-slate-600">Choose a date<input type="date" value={value} min={min || new Date().toISOString().slice(0, 10)} onChange={event => onChange(event.target.value)} className="mt-2 w-full rounded-xl border border-blue-100 bg-white px-3 py-3 text-sm"/></label>; }
