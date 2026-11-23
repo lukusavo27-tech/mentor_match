@@ -1,14 +1,22 @@
-import { LayoutDashboard, UserRound, Users, CalendarDays, Settings, LogOut, Sparkles } from "lucide-react";
+import { LayoutDashboard, UserRound, Users, CalendarDays, Settings, LogOut, Sparkles, Target } from "lucide-react";
 
 const links = [
   [LayoutDashboard, "Overview", "overview"],
   [UserRound, "My profile", "profile"],
   [Users, "Find mentors", "mentors"],
+  [Target, "Goals", "goals"],
   [CalendarDays, "Sessions", "sessions"],
   [Settings, "Settings", "settings"]
 ];
 
-export default function Sidebar({ active = "overview", onNavigate, role = "Graduate" }) {
+export default function Sidebar({ active = "overview", onNavigate, onSignOut, role = "Graduate", accountName = "" }) {
+  const initials = accountName
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
   return (
     <aside className="glass flex w-full flex-col rounded-3xl p-4 lg:sticky lg:top-5 lg:h-[calc(100vh-2.5rem)] lg:w-64">
       <div className="mb-9 flex items-center gap-3 px-2 pt-2">
@@ -29,11 +37,11 @@ export default function Sidebar({ active = "overview", onNavigate, role = "Gradu
         <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-blue-200"><div className="h-full w-[85%] rounded-full bg-blue-700"/></div>
         <div className="mt-1 text-right text-[10px] font-bold text-blue-700">85% complete</div>
       </div>
-      <button className="mt-4 hidden items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-slate-500 hover:bg-slate-100 lg:flex"><LogOut size={18}/> Sign out</button>
-      <div className="mt-4 flex items-center gap-3 border-t border-blue-100 pt-4">
-        <div className="grid h-10 w-10 place-items-center rounded-full bg-blue-100 text-sm font-bold text-blue-800">TO</div>
-        <div className="min-w-0"><div className="truncate text-sm font-bold text-slate-800">Tillen Otuoma</div><div className="text-xs text-slate-500">{role} account</div></div>
-      </div>
+      <button type="button" onClick={onSignOut} className="mt-4 flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-slate-500 hover:bg-slate-100"><LogOut size={18}/> Sign out</button>
+      {accountName && <div className="mt-4 flex items-center gap-3 border-t border-blue-100 pt-4">
+        <div className="grid h-10 w-10 place-items-center rounded-full bg-blue-100 text-sm font-bold text-blue-800">{initials}</div>
+        <div className="min-w-0"><div className="truncate text-sm font-bold text-slate-800">{accountName}</div><div className="text-xs text-slate-500">{role} account</div></div>
+      </div>}
     </aside>
   );
 }
