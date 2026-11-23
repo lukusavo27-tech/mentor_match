@@ -4,7 +4,7 @@ import api from "../services/api";
 
 const dateTime = (value) => new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 
-export default function SessionsPanel({ role, userId, mentors = [], slots = [], sessions = [], onAddAvailability, onRemoveAvailability, onBook, onStatus, canManage }) {
+export default function SessionsPanel({ role, userId, isDemoAccount = false, mentors = [], slots = [], sessions = [], onAddAvailability, onRemoveAvailability, onBook, onStatus, canManage }) {
   const [window, setWindow] = useState({ starts_at: "", ends_at: "" });
   const [mentorId, setMentorId] = useState(mentors[0]?.id || "");
   const [mentorSlots, setMentorSlots] = useState([]);
@@ -46,6 +46,7 @@ export default function SessionsPanel({ role, userId, mentors = [], slots = [], 
     {role === "Mentor" ? <div className="glass rounded-2xl p-6">
       <h2 className="text-lg font-extrabold">Your availability</h2>
       <p className="mt-1 text-sm text-slate-500">Add one-hour openings. Graduates can request these times, and you decide whether to accept.</p>
+      {isDemoAccount && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800">These are sample demo openings. Remove or adjust them to match your real schedule.</p>}
       {canManage && <form onSubmit={submitAvailability} className="mt-5 grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]">
         <label className="text-xs font-bold text-slate-600">Starts<input required type="datetime-local" min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000 + 60000).toISOString().slice(0, 16)} value={window.starts_at} onChange={(e) => { const starts_at = e.target.value; const end = starts_at ? new Date(new Date(starts_at).getTime() + 3600000) : null; setWindow({ starts_at, ends_at: end ? new Date(end.getTime() - end.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "" }); }} className="mt-2 w-full rounded-xl border border-blue-100 bg-white px-3 py-3 text-sm" /></label>
         <label className="text-xs font-bold text-slate-600">Ends<input required type="datetime-local" min={window.starts_at} value={window.ends_at} onChange={(e) => setWindow((current) => ({ ...current, ends_at: e.target.value }))} className="mt-2 w-full rounded-xl border border-blue-100 bg-white px-3 py-3 text-sm" /></label>
@@ -55,6 +56,7 @@ export default function SessionsPanel({ role, userId, mentors = [], slots = [], 
     </div> : <div className="glass rounded-2xl p-6">
       <h2 className="text-lg font-extrabold">Request a mentoring session</h2>
       <p className="mt-1 text-sm text-slate-500">Choose an opening a mentor has shared. Your request stays pending until they respond.</p>
+      <p className="mt-2 text-xs text-slate-500">Demo mentors may have sample openings; session requests are for trying the booking flow.</p>
       {mentors.length === 0 ? <p className="mt-4 rounded-xl bg-white/70 p-4 text-sm text-slate-500">No mentor matches are available yet. Complete your profile to discover mentors.</p> : <form onSubmit={book} className="mt-5 grid gap-3 sm:grid-cols-2">
         <label className="text-xs font-bold text-slate-600">Mentor<select value={mentorId} onChange={(e) => refreshSlots(e.target.value)} className="mt-2 w-full rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm">{mentors.map((mentor) => <option key={mentor.id} value={mentor.id}>{mentor.name}</option>)}</select></label>
         <label className="text-xs font-bold text-slate-600">Available time<select required value={selectedSlot} onChange={(e) => setSelectedSlot(e.target.value)} className="mt-2 w-full rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm"><option value="">{slotLoading ? "Loading times…" : mentorSlots.length ? "Choose a time" : "No openings listed"}</option>{mentorSlots.map((slot) => <option key={slot.id} value={slot.starts_at}>{dateTime(slot.starts_at)} (1 hour)</option>)}</select></label>
