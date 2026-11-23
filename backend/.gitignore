@@ -1,4 +1,20 @@
 .env
+.venv/
 venv/
 __pycache__/
 *.py[cod]
+
+# Test and coverage output
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Python tooling caches and build artifacts
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Local editor and OS files
+.DS_Store
