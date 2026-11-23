@@ -68,7 +68,9 @@ python -m app.seed_demo_data
 `password_hash` columns to older databases. It is a small setup helper, not a
 general-purpose migration system. The demo seeder assigns all seeded accounts
 the local-only password `MentorMatchDemo2026!`; do not use this password outside
-local development.
+local development. It also adds varied sample openings for demo mentors that
+do not already have availability. Rerun it after the availability table
+migration to add openings to existing demo accounts; existing openings remain.
 
 ### Inspect and persist PostgreSQL records
 
@@ -257,8 +259,9 @@ mentors can mark accepted sessions completed. Availability, sessions, goals,
 profile text, and career goals are persisted in PostgreSQL. After deploying the
 availability table change, run the additive `python -m app.init_db` setup once
 against the hosted database; it creates the missing table without clearing
-existing records. Demo accounts cannot edit profiles or availability, while a
-signed-in demo graduate can create goals and request sessions for evaluation.
+existing records. Mentors, including demo mentors, can edit their own profiles
+and availability. Demo graduate profiles remain read-only; signed-in demo
+graduates can create goals and request sessions for evaluation.
 Availability is listed with `GET /users/{mentor_id}/availability`, created with
 `POST /users/{mentor_id}/availability`, and removed with
 `DELETE /users/{mentor_id}/availability/{slot_id}`.

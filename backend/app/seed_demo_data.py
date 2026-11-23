@@ -1,11 +1,12 @@
 """Create repeatable demo mentors and mentees across several career paths."""
+from datetime import datetime, time, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_engine, init_db
-from app.models import Profile, User
+from app.models import MentorAvailability, Profile, User
 from app.services.auth import hash_password
 
 # Development-only credential shared by the seeded demo accounts.
@@ -173,6 +174,35 @@ def seed_demo_data() -> tuple[int, int]:
             )
             db.add(user)
             created[item["role"]] += 1
+
+        now = datetime.now(timezone.utc)
+        tomorrow = now.date() + timedelta(days=1)
+        for mentor_index, item in enumerate(
+            (entry for entry in DEMO_USERS if entry["role"] == "mentor")
+        ):
+            mentor_id = UUID(item["id"])
+            existing_opening = db.scalar(
+                select(MentorAvailability.id)
+                .where(MentorAvailability.mentor_id == mentor_id)
+                .limit(1)
+            )
+            if existing_opening is not None:
+                continue
+            # Varied, repeatable sample hours give demo mentees bookable slots.
+            # These are demo openings, not claimed availability from real users.
+            for day_offset, hour_offset in ((1, 0), (3, 1), (5, 2)):
+                starts_at = datetime.combine(
+                    tomorrow + timedelta(days=day_offset - 1),
+                    time(hour=9 + ((mentor_index * 2 + hour_offset * 3) % 9)),
+                    tzinfo=timezone.utc,
+                )
+                db.add(
+                    MentorAvailability(
+                        mentor_id=mentor_id,
+                        starts_at=starts_at,
+                        ends_at=starts_at + timedelta(hours=1),
+                    )
+                )
         db.commit()
     return created["mentor"], created["graduate"]
 

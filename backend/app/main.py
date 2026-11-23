@@ -222,10 +222,13 @@ def _require_read_access(user_id: UUID, current_user: User) -> None:
 
 
 def _require_write_access(user_id: UUID, current_user: User) -> None:
-    if user_id != current_user.id or user_id in DEMO_ACCOUNT_IDS:
+    is_read_only_demo_graduate = (
+        user_id in DEMO_ACCOUNT_IDS and current_user.role != "mentor"
+    )
+    if user_id != current_user.id or is_read_only_demo_graduate:
         raise HTTPException(
             status_code=403,
-            detail="Only your own non-demo account can be changed",
+            detail="You can only change your own account; demo graduates are read-only",
         )
 
 
