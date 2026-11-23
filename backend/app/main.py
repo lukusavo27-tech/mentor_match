@@ -1,6 +1,8 @@
+import os
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import InvalidTokenError
 from sqlalchemy import select
@@ -54,6 +56,18 @@ app = FastAPI(
     title="Mentor Match API",
     description="Backend API for graduate-to-mentor recommendations.",
     version="0.1.0",
+)
+frontend_origins = [
+    origin.strip()
+    for origin in os.getenv("FRONTEND_ORIGINS", "http://localhost:5173").split(",")
+    if origin.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=frontend_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 bearer_auth = HTTPBearer(auto_error=False)
 DEMO_ACCOUNT_IDS = frozenset(UUID(user["id"]) for user in DEMO_USERS)

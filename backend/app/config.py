@@ -13,6 +13,15 @@ def get_database_url() -> str:
         raise RuntimeError(
             "DATABASE_URL is not set. Copy .env.example to .env and configure it."
         )
+    # Render may provide either PostgreSQL URL scheme; this project uses psycopg 3.
+    if database_url.startswith("postgres://"):
+        database_url = "postgresql+psycopg://" + database_url.removeprefix(
+            "postgres://"
+        )
+    elif database_url.startswith("postgresql://"):
+        database_url = "postgresql+psycopg://" + database_url.removeprefix(
+            "postgresql://"
+        )
     return database_url
 
 
