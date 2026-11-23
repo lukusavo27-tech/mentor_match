@@ -2,6 +2,17 @@ import { useState } from "react";
 import { demoAccounts, demoLoginPassword } from "../data/demo";
 import api from "../services/api";
 
+function describeAuthError(error) {
+  const detail = error.response?.data?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail.map((item) => item.msg).filter(Boolean);
+    if (messages.length) return messages.join(" ");
+  }
+  if (!error.response) return "Could not reach the API. Check its URL and CORS settings.";
+  return "The request failed (" + error.response.status + "). Check the details and try again.";
+}
+
 const firstDemoMentee = demoAccounts.find((account) => account.role === "graduate");
 
 export default function AuthPanel({ onAuthenticated }) {
@@ -24,8 +35,7 @@ export default function AuthPanel({ onAuthenticated }) {
         : await api.post("/auth/register", { name, email, password, role });
       onAuthenticated(response.data);
     } catch (error) {
-      const detail = error.response?.data?.detail;
-      setNotice(typeof detail === "string" ? detail : "Could not sign in. Check your details and make sure the backend is running.");
+      setNotice(describeAuthError(error));
     } finally {
       setSubmitting(false);
     }
