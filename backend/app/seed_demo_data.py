@@ -1,4 +1,4 @@
-"""Create repeatable local demo mentors and mentees."""
+"""Create repeatable demo mentors and mentees across several career paths."""
 from uuid import UUID
 
 from sqlalchemy import select
@@ -45,6 +45,46 @@ DEMO_USERS = (
         "career_goals": "",
     },
     {
+        "id": "10000000-0000-4000-8000-000000000005",
+        "name": "Fatima Njoroge",
+        "email": "fatima.mentor@example.test",
+        "role": "mentor",
+        "profile_text": "Frontend engineer building responsive web applications with React, JavaScript, and TypeScript. Focuses on accessibility, user interface development, testing, and design systems.",
+        "career_goals": "",
+    },
+    {
+        "id": "10000000-0000-4000-8000-000000000006",
+        "name": "Samuel Kariuki",
+        "email": "samuel.mentor@example.test",
+        "role": "mentor",
+        "profile_text": "Financial analyst in fintech with experience in finance, accounting, Excel, SQL, financial modeling, risk analysis, and business intelligence.",
+        "career_goals": "",
+    },
+    {
+        "id": "10000000-0000-4000-8000-000000000007",
+        "name": "Wanjiru Muthoni",
+        "email": "wanjiru.mentor@example.test",
+        "role": "mentor",
+        "profile_text": "Agricultural data scientist working with agriculture, Python, pandas, SQL, data analysis, machine learning, and data pipelines to improve crop yields.",
+        "career_goals": "",
+    },
+    {
+        "id": "10000000-0000-4000-8000-000000000008",
+        "name": "James Ouma",
+        "email": "james.mentor@example.test",
+        "role": "mentor",
+        "profile_text": "Healthcare informatics specialist who builds health data systems using Python, SQL, data analytics, and business intelligence while protecting patient privacy.",
+        "career_goals": "",
+    },
+    {
+        "id": "10000000-0000-4000-8000-000000000009",
+        "name": "Joseph Kamau",
+        "email": "joseph.mentor@example.test",
+        "role": "mentor",
+        "profile_text": "Project manager in education technology. Leads agile and scrum teams, product roadmaps, stakeholder communication, project planning, and user research.",
+        "career_goals": "",
+    },
+    {
         "id": "20000000-0000-4000-8000-000000000001",
         "name": "Tillen Otuoma",
         "email": "tillen.mentee@example.test",
@@ -67,6 +107,46 @@ DEMO_USERS = (
         "role": "graduate",
         "profile_text": "Information technology graduate with networking fundamentals and an interest in cloud infrastructure.",
         "career_goals": "Become a cybersecurity analyst specializing in cloud security.",
+    },
+    {
+        "id": "20000000-0000-4000-8000-000000000004",
+        "name": "Leah Otieno",
+        "email": "leah.mentee@example.test",
+        "role": "graduate",
+        "profile_text": "Computer science graduate with React, JavaScript, and TypeScript experience. Interested in responsive web development, accessible user interfaces, and frontend testing.",
+        "career_goals": "Become a frontend engineer building accessible web applications.",
+    },
+    {
+        "id": "20000000-0000-4000-8000-000000000005",
+        "name": "Kevin Kiptoo",
+        "email": "kevin.mentee@example.test",
+        "role": "graduate",
+        "profile_text": "Business graduate interested in finance, accounting, Excel, SQL, financial analysis, and fintech products.",
+        "career_goals": "Become a financial analyst and build strong financial modeling skills.",
+    },
+    {
+        "id": "20000000-0000-4000-8000-000000000006",
+        "name": "Zawadi Abdalla",
+        "email": "zawadi.mentee@example.test",
+        "role": "graduate",
+        "profile_text": "Agriculture graduate with statistics experience who is learning Python, pandas, SQL, data analysis, and machine learning for agricultural data.",
+        "career_goals": "Use data science to improve agriculture and crop planning.",
+    },
+    {
+        "id": "20000000-0000-4000-8000-000000000007",
+        "name": "Mercy Chebet",
+        "email": "mercy.mentee@example.test",
+        "role": "graduate",
+        "profile_text": "Health sciences graduate interested in healthcare informatics, health data, Python, SQL, data analytics, and patient privacy.",
+        "career_goals": "Build a career in healthcare data analytics and informatics.",
+    },
+    {
+        "id": "20000000-0000-4000-8000-000000000008",
+        "name": "Asha Wairimu",
+        "email": "asha.mentee@example.test",
+        "role": "graduate",
+        "profile_text": "Recent graduate interested in education technology, product planning, project management, agile, scrum, and user research.",
+        "career_goals": "Become a project manager for products that improve access to education.",
     },
 )
 
