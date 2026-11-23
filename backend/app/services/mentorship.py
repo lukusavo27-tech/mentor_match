@@ -1,16 +1,19 @@
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, aliased, selectinload
 
-from app.models import GoalUpdate, MentorshipSession, MenteeGoal, User
+from app.models import GoalUpdate, MentorAvailability, MentorshipSession, MenteeGoal, User
 from app.schemas import (
     GoalCreate,
     GoalResponse,
     GoalStatusUpdate,
     GoalUpdateCreate,
     GoalUpdateResponse,
+    AvailabilityCreate,
+    AvailabilityResponse,
     SessionCreate,
     SessionResponse,
     SessionStatusUpdate,
@@ -116,7 +119,11 @@ def create_session(
     db: Session, mentee_id: UUID, data: SessionCreate
 ) -> SessionResponse:
     mentee = db.get(User, mentee_id)
-    mentor = db.get(User, data.mentor_id)
+    # Serialize requests per mentor so simultaneous bookings cannot pass the
+    # availability/conflict checks at the same time on PostgreSQL.
+    mentor = db.scalar(
+        select(User).where(User.id == data.mentor_id).with_for_update()
+    )
     if mentee is None:
         raise HTTPException(status_code=404, detail="Mentee account not found")
     if mentee.role != "graduate":
@@ -125,6 +132,27 @@ def create_session(
         raise HTTPException(status_code=404, detail="Mentor account not found")
     if mentor.id == mentee.id:
         raise HTTPException(status_code=400, detail="Choose a different mentor account")
+
+    requested_end = data.scheduled_at + timedelta(hours=1)
+    availability = db.scalar(
+        select(MentorAvailability).where(
+            MentorAvailability.mentor_id == mentor.id,
+            MentorAvailability.starts_at <= data.scheduled_at,
+            MentorAvailability.ends_at >= requested_end,
+        )
+    )
+    if availability is None:
+        raise HTTPException(status_code=409, detail="That time is not available")
+    conflict = db.scalar(
+        select(MentorshipSession.id).where(
+            MentorshipSession.mentor_id == mentor.id,
+            MentorshipSession.status.in_(["pending", "accepted"]),
+            MentorshipSession.scheduled_at < requested_end,
+            MentorshipSession.scheduled_at >= data.scheduled_at - timedelta(hours=1),
+        )
+    )
+    if conflict is not None:
+        raise HTTPException(status_code=409, detail="That time has already been requested")
 
     session = MentorshipSession(
         mentee_id=mentee_id,
@@ -146,6 +174,79 @@ def create_session(
         status=session.status,
         created_at=session.created_at,
     )
+
+
+def list_availability(db: Session, mentor_id: UUID) -> list[AvailabilityResponse]:
+    mentor = db.get(User, mentor_id)
+    if mentor is None or mentor.role != "mentor":
+        raise HTTPException(status_code=404, detail="Mentor account not found")
+    now = datetime.now(timezone.utc)
+    slots = db.scalars(
+        select(MentorAvailability)
+        .where(MentorAvailability.mentor_id == mentor_id, MentorAvailability.ends_at > now)
+        .order_by(MentorAvailability.starts_at)
+    ).all()
+    sessions = db.scalars(
+        select(MentorshipSession).where(
+            MentorshipSession.mentor_id == mentor_id,
+            MentorshipSession.status.in_(["pending", "accepted"]),
+            MentorshipSession.scheduled_at >= now - timedelta(hours=1),
+        )
+    ).all()
+    available = [
+        slot
+        for slot in slots
+        if not any(
+            meeting.scheduled_at < slot.ends_at
+            and meeting.scheduled_at + timedelta(hours=1) > slot.starts_at
+            for meeting in sessions
+        )
+    ]
+    return [AvailabilityResponse.model_validate(slot, from_attributes=True) for slot in available]
+
+
+def create_availability(
+    db: Session, mentor_id: UUID, data: AvailabilityCreate
+) -> AvailabilityResponse:
+    mentor = db.scalar(select(User).where(User.id == mentor_id).with_for_update())
+    if mentor is None or mentor.role != "mentor":
+        raise HTTPException(status_code=400, detail="Only mentors can set availability")
+    overlap = db.scalar(
+        select(MentorAvailability.id).where(
+            MentorAvailability.mentor_id == mentor_id,
+            MentorAvailability.starts_at < data.ends_at,
+            MentorAvailability.ends_at > data.starts_at,
+        )
+    )
+    if overlap is not None:
+        raise HTTPException(status_code=409, detail="Availability overlaps an existing time")
+    slot = MentorAvailability(
+        mentor_id=mentor_id, starts_at=data.starts_at, ends_at=data.ends_at
+    )
+    db.add(slot)
+    db.commit()
+    db.refresh(slot)
+    return AvailabilityResponse.model_validate(slot, from_attributes=True)
+
+
+def delete_availability(db: Session, mentor_id: UUID, slot_id: UUID) -> None:
+    slot = db.get(MentorAvailability, slot_id)
+    if slot is None or slot.mentor_id != mentor_id:
+        raise HTTPException(status_code=404, detail="Availability not found")
+    meetings = db.scalars(
+        select(MentorshipSession).where(
+            MentorshipSession.mentor_id == mentor_id,
+            MentorshipSession.status.in_(["pending", "accepted"]),
+        )
+    ).all()
+    if any(
+        meeting.scheduled_at < slot.ends_at
+        and meeting.scheduled_at + timedelta(hours=1) > slot.starts_at
+        for meeting in meetings
+    ):
+        raise HTTPException(status_code=409, detail="This time has a pending or accepted session")
+    db.delete(slot)
+    db.commit()
 
 
 def list_sessions(db: Session, user_id: UUID) -> list[SessionResponse]:

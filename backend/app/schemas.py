@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 from uuid import UUID
 
@@ -70,6 +70,13 @@ class GoalCreate(BaseModel):
     description: str = Field(default="", max_length=5_000)
     target_date: date | None = None
 
+    @field_validator("target_date")
+    @classmethod
+    def target_date_cannot_be_in_past(cls, value: date | None) -> date | None:
+        if value is not None and value < date.today():
+            raise ValueError("target_date cannot be in the past")
+        return value
+
 
 class GoalUpdateCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
@@ -132,4 +139,31 @@ class SessionResponse(BaseModel):
     scheduled_at: datetime
     agenda: str
     status: Literal["pending", "accepted", "declined", "cancelled", "completed"]
+    created_at: datetime
+
+
+class AvailabilityCreate(BaseModel):
+    starts_at: datetime
+    ends_at: datetime
+
+    @model_validator(mode="after")
+    def validate_window(self):
+        if self.starts_at.tzinfo is None or self.starts_at.utcoffset() is None:
+            raise ValueError("starts_at must include a timezone")
+        if self.ends_at.tzinfo is None or self.ends_at.utcoffset() is None:
+            raise ValueError("ends_at must include a timezone")
+        if self.starts_at <= datetime.now(timezone.utc):
+            raise ValueError("Availability must start in the future")
+        if self.ends_at <= self.starts_at:
+            raise ValueError("ends_at must be after starts_at")
+        if self.ends_at - self.starts_at != timedelta(hours=1):
+            raise ValueError("Each availability opening must be one hour")
+        return self
+
+
+class AvailabilityResponse(BaseModel):
+    id: UUID
+    mentor_id: UUID
+    starts_at: datetime
+    ends_at: datetime
     created_at: datetime

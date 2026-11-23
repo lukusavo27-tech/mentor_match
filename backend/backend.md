@@ -250,9 +250,18 @@ participants can list their sessions.
 - `PATCH /sessions/{session_id}` changes `status` to `accepted`, `declined`,
   `cancelled`, or `completed`, subject to the transition rules above.
 
-The API does not yet check mentor availability or session conflicts. Demo
-accounts are read-only for profile editing, while a signed-in demo graduate can
-create their own goals and session requests for local evaluation.
+Mentors can create one-hour future availability openings. Graduates can request
+only those openings; pending and accepted sessions block overlapping requests.
+Mentors can accept or decline requests, either participant can cancel, and
+mentors can mark accepted sessions completed. Availability, sessions, goals,
+profile text, and career goals are persisted in PostgreSQL. After deploying the
+availability table change, run the additive `python -m app.init_db` setup once
+against the hosted database; it creates the missing table without clearing
+existing records. Demo accounts cannot edit profiles or availability, while a
+signed-in demo graduate can create goals and request sessions for evaluation.
+Availability is listed with `GET /users/{mentor_id}/availability`, created with
+`POST /users/{mentor_id}/availability`, and removed with
+`DELETE /users/{mentor_id}/availability/{slot_id}`.
 
 ### Frontend connection status
 
@@ -286,7 +295,9 @@ capstone results.
 The dashboard provides the file picker and sends the file to
 `POST /users/{user_id}/resume`. The API accepts PDF and DOCX files up to 10 MB,
 extracts readable text, and replaces profile text while preserving career goals.
-Image-only or password-protected PDFs are not supported.
+The extracted text is stored in the PostgreSQL profile and remains editable;
+the uploaded binary is processed in memory and discarded. Image-only or
+password-protected PDFs are not supported.
 
 ## Current limitations
 
@@ -299,8 +310,8 @@ Image-only or password-protected PDFs are not supported.
   to support broad performance claims.
 - Resume extraction accepts PDF and DOCX text up to 10 MB. It has no OCR for
   image-only documents and no malware scanning.
-- Session requests store a suggested time, but the API does not check mentor
-  availability, time conflicts, or send calendar invitations or reminders.
+- Session requests check mentor availability and overlapping pending or
+  accepted sessions. The API does not send calendar invitations or reminders.
 - `init_db` is a small development helper, not a general migration framework.
   Use versioned migrations before evolving a production schema.
 - Local Vite proxying is configured; a separately deployed frontend still needs

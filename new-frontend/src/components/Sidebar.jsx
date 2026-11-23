@@ -1,12 +1,13 @@
 import { LayoutDashboard, UserRound, Users, CalendarDays, Settings, LogOut, Sparkles, Target } from "lucide-react";
 
-const links = [
-  [LayoutDashboard, "Overview", "overview"],
-  [UserRound, "My profile", "profile"],
-  [Users, "Find mentors", "mentors"],
-  [Target, "Goals", "goals"],
-  [CalendarDays, "Sessions", "sessions"],
-  [Settings, "Settings", "settings"]
+const graduateLinks = [
+  [LayoutDashboard, "Overview", "overview"], [UserRound, "My profile", "profile"],
+  [Users, "Find mentors", "mentors"], [Target, "Goals", "goals"],
+  [CalendarDays, "Sessions", "sessions"], [Settings, "Settings", "settings"]
+];
+const mentorLinks = [
+  [LayoutDashboard, "Overview", "overview"], [UserRound, "My profile", "profile"],
+  [CalendarDays, "Availability & sessions", "sessions"], [Settings, "Settings", "settings"]
 ];
 
 export default function Sidebar({ active = "overview", onNavigate, onSignOut, role = "Graduate", accountName = "" }) {
@@ -25,15 +26,15 @@ export default function Sidebar({ active = "overview", onNavigate, onSignOut, ro
       </div>
       <div className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[.2em] text-slate-400">Workspace</div>
       <nav className="flex gap-1 overflow-x-auto lg:flex-col">
-        {links.map(([Icon, label, id]) => (
+        {(role === "Mentor" ? mentorLinks : graduateLinks).map(([Icon, label, id]) => (
           <button key={id} onClick={() => onNavigate(id)} className={`flex shrink-0 items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition ${active === id ? "bg-blue-700 text-white shadow-lg shadow-blue-200" : "text-slate-600 hover:bg-blue-50 hover:text-blue-700"}`}>
             <Icon size={18}/>{label}
           </button>
         ))}
       </nav>
       <div className="mt-auto hidden rounded-2xl bg-blue-50 p-4 lg:block">
-        <div className="mb-2 flex items-center gap-2 text-sm font-bold text-blue-900"><Sparkles size={16}/> Make progress</div>
-        <p className="text-xs leading-5 text-blue-800/75">Complete your profile to get more relevant mentor recommendations.</p>
+        <div className="mb-2 flex items-center gap-2 text-sm font-bold text-blue-900"><Sparkles size={16}/> {role === "Mentor" ? "Grow your impact" : "Make progress"}</div>
+        <p className="text-xs leading-5 text-blue-800/75">{role === "Mentor" ? "Keep your profile and open times current so graduates can connect with you." : "Complete your profile to get more relevant mentor recommendations."}</p>
         <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-blue-200"><div className="h-full w-[85%] rounded-full bg-blue-700"/></div>
         <div className="mt-1 text-right text-[10px] font-bold text-blue-700">85% complete</div>
       </div>

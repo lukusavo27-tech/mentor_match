@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base
 from app.models import Profile, User
 from app.schemas import (
+    AvailabilityCreate,
     GoalCreate,
     GoalStatusUpdate,
     GoalUpdateCreate,
@@ -18,9 +19,11 @@ from app.schemas import (
 )
 from app.services.mentorship import (
     add_goal_update,
+    create_availability,
     create_goal,
     create_session,
     list_goals,
+    list_availability,
     list_sessions,
     update_goal_status,
     update_session_status,
@@ -64,6 +67,16 @@ class MentorshipFeatureTests(unittest.TestCase):
         self.db.close()
         Base.metadata.drop_all(self.engine)
         self.engine.dispose()
+
+    def add_opening(self, starts_at: datetime):
+        return create_availability(
+            self.db,
+            self.mentor.id,
+            AvailabilityCreate(
+                starts_at=starts_at,
+                ends_at=starts_at + timedelta(hours=1),
+            ),
+        )
 
     def test_goal_creation_progress_history_and_completion(self) -> None:
         goal = create_goal(
@@ -127,12 +140,14 @@ class MentorshipFeatureTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 400)
 
     def test_session_request_and_participant_status_transitions(self) -> None:
+        starts_at = datetime.now(timezone.utc) + timedelta(days=4)
+        self.add_opening(starts_at)
         request = create_session(
             self.db,
             self.mentee.id,
             SessionCreate(
                 mentor_id=self.mentor.id,
-                scheduled_at=datetime.now(timezone.utc) + timedelta(days=4),
+                scheduled_at=starts_at,
                 agenda="Review my API project",
             ),
         )
@@ -164,13 +179,48 @@ class MentorshipFeatureTests(unittest.TestCase):
         self.assertEqual(accepted.status, "accepted")
         self.assertEqual(completed.status, "completed")
 
+    def test_session_requires_an_opening_and_prevents_double_booking(self) -> None:
+        starts_at = datetime.now(timezone.utc) + timedelta(days=3)
+        request_data = SessionCreate(mentor_id=self.mentor.id, scheduled_at=starts_at)
+        with self.assertRaises(HTTPException) as unavailable:
+            create_session(self.db, self.mentee.id, request_data)
+        self.assertEqual(unavailable.exception.status_code, 409)
+
+        self.add_opening(starts_at)
+        create_session(self.db, self.mentee.id, request_data)
+        with self.assertRaises(HTTPException) as booked:
+            create_session(self.db, self.other.id, request_data)
+        self.assertEqual(booked.exception.status_code, 409)
+        self.assertEqual(list_availability(self.db, self.mentor.id), [])
+
+    def test_availability_rejects_overlaps_and_non_one_hour_windows(self) -> None:
+        starts_at = datetime.now(timezone.utc) + timedelta(days=5)
+        self.add_opening(starts_at)
+        with self.assertRaises(HTTPException) as overlap:
+            create_availability(
+                self.db,
+                self.mentor.id,
+                AvailabilityCreate(
+                    starts_at=starts_at + timedelta(minutes=30),
+                    ends_at=starts_at + timedelta(minutes=90),
+                ),
+            )
+        self.assertEqual(overlap.exception.status_code, 409)
+        with self.assertRaises(ValueError):
+            AvailabilityCreate(
+                starts_at=starts_at,
+                ends_at=starts_at + timedelta(minutes=30),
+            )
+
     def test_nonparticipant_cannot_change_a_session(self) -> None:
+        starts_at = datetime.now(timezone.utc) + timedelta(days=2)
+        self.add_opening(starts_at)
         request = create_session(
             self.db,
             self.mentee.id,
             SessionCreate(
                 mentor_id=self.mentor.id,
-                scheduled_at=datetime.now(timezone.utc) + timedelta(days=2),
+                scheduled_at=starts_at,
             ),
         )
         with self.assertRaises(HTTPException) as raised:
@@ -198,6 +248,10 @@ class MentorshipFeatureTests(unittest.TestCase):
                 mentor_id=self.mentor.id,
                 scheduled_at=datetime.now() + timedelta(days=1),
             )
+
+    def test_goal_target_date_cannot_be_in_the_past(self) -> None:
+        with self.assertRaises(ValueError):
+            GoalCreate(title="Past deadline", target_date=datetime.now(timezone.utc).date() - timedelta(days=1))
 
 
 if __name__ == "__main__":

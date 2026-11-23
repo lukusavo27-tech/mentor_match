@@ -13,6 +13,8 @@ from app.database import get_db
 from app.models import Profile, User
 from app.schemas import (
     AuthResponse,
+    AvailabilityCreate,
+    AvailabilityResponse,
     GoalCreate,
     GoalResponse,
     GoalStatusUpdate,
@@ -37,8 +39,11 @@ from app.services.auth import (
 )
 from app.services.mentorship import (
     add_goal_update,
+    create_availability,
     create_goal,
     create_session,
+    delete_availability,
+    list_availability,
     list_goals,
     list_sessions,
     update_goal_status,
@@ -415,6 +420,37 @@ def get_sessions_endpoint(
 ) -> list[SessionResponse]:
     _require_read_access(user_id, current_user)
     return list_sessions(db, user_id)
+
+
+@app.get("/users/{mentor_id}/availability", response_model=list[AvailabilityResponse])
+def get_mentor_availability_endpoint(
+    mentor_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[AvailabilityResponse]:
+    return list_availability(db, mentor_id)
+
+
+@app.post("/users/{user_id}/availability", response_model=AvailabilityResponse, status_code=201)
+def create_availability_endpoint(
+    user_id: UUID,
+    availability_data: AvailabilityCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AvailabilityResponse:
+    _require_write_access(user_id, current_user)
+    return create_availability(db, user_id, availability_data)
+
+
+@app.delete("/users/{user_id}/availability/{slot_id}", status_code=204)
+def delete_availability_endpoint(
+    user_id: UUID,
+    slot_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    _require_write_access(user_id, current_user)
+    delete_availability(db, user_id, slot_id)
 
 
 @app.post(

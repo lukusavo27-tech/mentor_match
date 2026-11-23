@@ -1,5 +1,8 @@
 import { useState } from "react";
 
+const today = new Date();
+const todayLocal = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
 export default function GoalsPanel({ goals, loading, canManage, onCreate, onUpdate, onStatus }) {
   const [newGoal, setNewGoal] = useState({ title: "", description: "", target_date: "" });
   const [updates, setUpdates] = useState({});
@@ -36,7 +39,7 @@ export default function GoalsPanel({ goals, loading, canManage, onCreate, onUpda
       <p className="mt-1 text-sm text-slate-500">Set a target and record progress as you work toward it.</p>
       {canManage && <form onSubmit={submitGoal} className="mt-5 grid gap-3 sm:grid-cols-2">
         <label className="text-xs font-bold text-slate-600">Goal title<input required maxLength={180} value={newGoal.title} onChange={(event) => setNewGoal({ ...newGoal, title: event.target.value })} placeholder="Build a portfolio project" className="mt-2 w-full rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm font-medium" /></label>
-        <label className="text-xs font-bold text-slate-600">Target date<input type="date" value={newGoal.target_date} onChange={(event) => setNewGoal({ ...newGoal, target_date: event.target.value })} className="mt-2 w-full rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm font-medium" /></label>
+        <label className="text-xs font-bold text-slate-600">Target date<input type="date" min={todayLocal} value={newGoal.target_date} onChange={(event) => setNewGoal({ ...newGoal, target_date: event.target.value })} className="mt-2 w-full rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm font-medium" /></label>
         <label className="text-xs font-bold text-slate-600 sm:col-span-2">What will you do?<textarea maxLength={5000} rows={2} value={newGoal.description} onChange={(event) => setNewGoal({ ...newGoal, description: event.target.value })} className="mt-2 w-full rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm font-medium" /></label>
         <button className="w-fit rounded-xl bg-blue-700 px-5 py-3 text-sm font-bold text-white">Add goal</button>
       </form>}
