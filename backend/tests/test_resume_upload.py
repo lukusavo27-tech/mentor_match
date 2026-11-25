@@ -56,13 +56,14 @@ class ResumeUploadTests(unittest.TestCase):
         file.seek(0)
         return UploadFile(file=file, filename=filename)
 
-    def test_docx_upload_replaces_profile_text_and_keeps_goals(self) -> None:
+    def test_docx_upload_stores_resume_separately_and_keeps_profile_and_goals(self) -> None:
         upload = self.make_upload(
             self.make_docx("Python engineer with SQL experience"), "resume.docx"
         )
         result = asyncio.run(upload_resume(self.user.id, upload, self.db))
 
-        self.assertEqual(result.profile_text, "Python engineer with SQL experience")
+        self.assertEqual(result.profile_text, "Old profile text")
+        self.assertEqual(result.resume_text, "Python engineer with SQL experience")
         self.assertEqual(result.career_goals, "Become a data engineer")
 
     def test_upload_rejects_files_over_10mb(self) -> None:

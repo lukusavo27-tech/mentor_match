@@ -3,8 +3,7 @@ import axios from "axios";
 const api = axios.create({
   // In development Vite proxies API paths to FastAPI. Set VITE_API_BASE_URL
   // when deploying the frontend separately.
-  baseURL: import.meta.env.VITE_API_BASE_URL || "",
-  headers: { "Content-Type": "application/json" }
+  baseURL: import.meta.env.VITE_API_BASE_URL || ""
 });
 
 api.interceptors.request.use((config) => {

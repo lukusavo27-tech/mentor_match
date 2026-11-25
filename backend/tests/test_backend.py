@@ -1,7 +1,8 @@
 import unittest
+from unittest.mock import Mock, patch
 
 from fastapi import HTTPException
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -12,8 +13,9 @@ from app.main import (
     recommend_mentors,
     update_profile,
 )
-from app.models import User
+from app.models import Profile, ProfileSkill, Recommendation, User
 from app.schemas import ProfileUpdate, UserCreate
+from app.services.recommendation_service import get_recommendations
 
 
 class BackendHandlerTests(unittest.TestCase):
@@ -132,6 +134,38 @@ class BackendHandlerTests(unittest.TestCase):
 
         self.assertEqual(results[0]["mentor_id"], marketing_mentor.id)
 
+    def test_matching_deduplicates_resume_text_that_also_exists_in_profile(self) -> None:
+        graduate = self.add_user(
+            "Resume Graduate",
+            "resume-dedup@example.test",
+            "graduate",
+            "Resume skills Python and SQL.",
+            "Become a backend engineer.",
+        )
+        self.add_user(
+            "Backend Mentor",
+            "resume-dedup-mentor@example.test",
+            "mentor",
+            "Backend engineer using Python and SQL.",
+        )
+        profile = self.db.scalar(select(Profile).where(Profile.user_id == graduate.id))
+        profile.resume_text = profile.profile_text
+        self.db.commit()
+
+        matcher = Mock()
+        matcher.rank_mentors.return_value = []
+        with patch(
+            "app.services.recommendation_service._matching_engine",
+            return_value=matcher,
+        ):
+            get_recommendations(self.db, graduate.id)
+
+        matching_input = matcher.rank_mentors.call_args.args[0]
+        self.assertEqual(
+            matching_input,
+            "Resume skills Python and SQL.\nBecome a backend engineer.",
+        )
+
     def test_recommendations_rank_relevant_mentor_first(self) -> None:
         graduate = self.add_user(
             "Graduate Example",
@@ -161,6 +195,38 @@ class BackendHandlerTests(unittest.TestCase):
             set(results[0]),
             {"mentor_id", "name", "score", "shared_skills", "profile_text"},
         )
+        persisted = self.db.query(Recommendation).filter(
+            Recommendation.graduate_id == graduate.id
+        ).all()
+        self.assertEqual(len(persisted), 2)
+        self.assertEqual(persisted[0].rank, 1)
+
+    def test_profile_skills_are_persisted_and_refreshed(self) -> None:
+        graduate = self.add_user(
+            "Skill Graduate",
+            "skills@example.test",
+            "graduate",
+            "Python and PostgreSQL backend engineer.",
+        )
+        profile = self.db.scalar(
+            select(Profile).where(Profile.user_id == graduate.id)
+        )
+        skills = self.db.query(ProfileSkill).filter(
+            ProfileSkill.profile_id == profile.id
+        ).all()
+        persisted_names = {item.skill for item in skills}
+        self.assertIn("python", persisted_names)
+        self.assertIn("sql", persisted_names)
+
+        update_profile(
+            graduate.id,
+            ProfileUpdate(profile_text="Marketing consultant using SEO."),
+            self.db,
+        )
+        refreshed = self.db.query(ProfileSkill).filter(
+            ProfileSkill.profile_id == profile.id
+        ).all()
+        self.assertEqual({item.skill for item in refreshed}, {"marketing"})
 
     def test_empty_profiles_return_zero_score_without_crashing(self) -> None:
         graduate = self.add_user(

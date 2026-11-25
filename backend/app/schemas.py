@@ -5,6 +5,12 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
+def _as_utc(value: datetime) -> datetime:
+    if value.utcoffset() is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 class UserCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
@@ -47,6 +53,31 @@ class UserResponse(BaseModel):
     role: Literal["graduate", "mentor"]
     profile_text: str
     career_goals: str
+    resume_text: str = ""
+    is_admin: bool = False
+
+
+class AdminSummary(BaseModel):
+    total_users: int
+    active_users: int
+    suspended_users: int
+    graduates: int
+    mentors: int
+    pending_sessions: int
+
+
+class AdminUserResponse(BaseModel):
+    id: UUID
+    name: str
+    email: str
+    role: Literal["graduate", "mentor"]
+    is_admin: bool
+    is_active: bool
+    created_at: datetime
+
+
+class AdminUserStatusUpdate(BaseModel):
+    is_active: bool
 
 
 class AuthResponse(BaseModel):
@@ -69,6 +100,7 @@ class GoalCreate(BaseModel):
     title: str = Field(min_length=1, max_length=180)
     description: str = Field(default="", max_length=5_000)
     target_date: date | None = None
+    shared_with_mentor: bool = False
 
     @field_validator("target_date")
     @classmethod
@@ -86,7 +118,14 @@ class GoalUpdateCreate(BaseModel):
 
 
 class GoalStatusUpdate(BaseModel):
-    status: Literal["active", "paused", "completed"]
+    status: Literal["active", "paused", "completed"] | None = None
+    shared_with_mentor: bool | None = None
+
+    @model_validator(mode="after")
+    def require_an_update(self):
+        if self.status is None and self.shared_with_mentor is None:
+            raise ValueError("Provide status or shared_with_mentor")
+        return self
 
 
 class GoalUpdateResponse(BaseModel):
@@ -105,6 +144,8 @@ class GoalResponse(BaseModel):
     target_date: date | None
     status: Literal["active", "paused", "completed"]
     progress_percent: int
+    shared_with_mentor: bool = False
+    mentee_name: str | None = None
     created_at: datetime
     updates: list[GoalUpdateResponse]
 
@@ -141,6 +182,11 @@ class SessionResponse(BaseModel):
     status: Literal["pending", "accepted", "declined", "cancelled", "completed"]
     created_at: datetime
 
+    @field_validator("scheduled_at", "created_at")
+    @classmethod
+    def normalize_timestamps_to_utc(cls, value: datetime) -> datetime:
+        return _as_utc(value)
+
 
 class AvailabilityCreate(BaseModel):
     starts_at: datetime
@@ -167,3 +213,8 @@ class AvailabilityResponse(BaseModel):
     starts_at: datetime
     ends_at: datetime
     created_at: datetime
+
+    @field_validator("starts_at", "ends_at", "created_at")
+    @classmethod
+    def normalize_timestamps_to_utc(cls, value: datetime) -> datetime:
+        return _as_utc(value)

@@ -1,0 +1,25 @@
+Database migrations for MentorMatch.
+
+The legacy_baseline revision represents the existing schema before admin flags.
+The admin_flags_v1 revision adds is_admin and is_active.
+
+From the backend directory, upgrade a new empty database with:
+
+    python -m app.init_db
+
+For an existing unversioned PostgreSQL database, use the guarded helper from
+the backend directory. It compares the reflected schema, makes and checks a
+fresh backup, asks you to confirm the exact target, adds only recognized
+missing schema objects, then stamps and upgrades:
+
+    read -rsp 'Target PostgreSQL URL: ' MENTORMATCH_TARGET_DATABASE_URL
+    printf '\n'
+    export MENTORMATCH_TARGET_DATABASE_URL
+    python scripts/db_safety.py preflight
+    python scripts/db_safety.py adopt --directory "$HOME/mentor_match_backups"
+
+Create the backup directory outside the project. The helper does not read
+.env, print credentials, or seed records. It stops on differences outside the
+specifically recognized add-only changes. A dump archive listing and checksum
+are verified; restore it to a separate database to rehearse recovery before
+production use.

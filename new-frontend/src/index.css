@@ -29,3 +29,18 @@ button { cursor: pointer; }
     radial-gradient(circle at 90% 0%, rgba(191,219,254,.62), transparent 30rem),
     linear-gradient(135deg, #f8fbff 0%, #eff6ff 55%, #eaf2ff 100%);
 }
+.notice-motion {
+  transition: opacity 180ms ease, transform 180ms ease, max-height 180ms ease, margin 180ms ease, padding 180ms ease;
+  overflow: hidden;
+}
+.notice-entering { opacity: 1; transform: translateY(0); max-height: 300px; }
+.notice-closing { opacity: 0; transform: translateY(-6px); max-height: 0; margin-top: 0; margin-bottom: 0; padding-top: 0; padding-bottom: 0; }
+.mentor-details {
+  transition: opacity 220ms ease, transform 220ms ease, max-height 260ms ease;
+  overflow: hidden;
+}
+.mentor-details-open { opacity: 1; transform: translateY(0); max-height: 1200px; }
+.mentor-details-closed { opacity: 0; transform: translateY(-6px); max-height: 0; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}

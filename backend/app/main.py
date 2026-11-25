@@ -5,13 +5,25 @@ from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import InvalidTokenError
-from sqlalchemy import select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.models import Profile, User
+from app.models import (
+    GoalUpdate,
+    MenteeGoal,
+    MentorAvailability,
+    MentorshipSession,
+    Profile,
+    ProfileSkill,
+    Recommendation,
+    User,
+)
 from app.schemas import (
+    AdminSummary,
+    AdminUserResponse,
+    AdminUserStatusUpdate,
     AuthResponse,
     AvailabilityCreate,
     AvailabilityResponse,
@@ -45,11 +57,15 @@ from app.services.mentorship import (
     delete_availability,
     list_availability,
     list_goals,
+    list_shared_goals,
     list_sessions,
     update_goal_status,
     update_session_status,
 )
-from app.services.recommendation_service import get_recommendations
+from app.services.recommendation_service import (
+    get_recommendations,
+    sync_profile_skills,
+)
 from app.services.resume_extractor import (
     MAX_RESUME_BYTES,
     ResumeExtractionError,
@@ -92,6 +108,8 @@ def _user_response(user: User) -> UserResponse:
         role=user.role,
         profile_text=user.profile.profile_text if user.profile else "",
         career_goals=user.profile.career_goals if user.profile else "",
+        resume_text=user.profile.resume_text if user.profile else "",
+        is_admin=user.is_admin,
     )
 
 
@@ -113,6 +131,12 @@ def register_account(
     normalized_email = account_data.email.lower()
     user = db.scalar(select(User).where(User.email == normalized_email))
     if user is not None:
+        if not user.is_active:
+            raise HTTPException(
+                status_code=401,
+                detail="Email or password is incorrect",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         if user.password_hash is not None:
             raise HTTPException(
                 status_code=409, detail="An account with this email already exists"
@@ -125,6 +149,20 @@ def register_account(
         user.password_hash = hash_password(account_data.password)
         db.commit()
         db.refresh(user)
+        if user.profile is not None:
+            sync_profile_skills(
+                db,
+                user.profile,
+                "\n".join(
+                    part
+                    for part in (
+                        user.profile.resume_text,
+                        user.profile.profile_text,
+                        user.profile.career_goals,
+                    )
+                    if part
+                ),
+            )
         return _auth_response(user)
 
     user = User(
@@ -146,6 +184,16 @@ def register_account(
             status_code=409, detail="An account with this email already exists"
         ) from error
     db.refresh(user)
+    if user.profile is not None:
+        sync_profile_skills(
+            db,
+            user.profile,
+            "\n".join(
+                part
+                for part in (user.profile.profile_text, user.profile.career_goals)
+                if part
+            ),
+        )
     return _auth_response(user)
 
 
@@ -155,7 +203,7 @@ def login(account_data: LoginRequest, db: Session = Depends(get_db)) -> AuthResp
     password_valid = verify_password(
         account_data.password, user.password_hash if user else None
     )
-    if user is None or not password_valid:
+    if user is None or not password_valid or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email or password is incorrect",
@@ -187,6 +235,12 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Account no longer exists",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This account is suspended",
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user
@@ -237,6 +291,167 @@ def _require_self_account(user_id: UUID, current_user: User) -> None:
         raise HTTPException(status_code=403, detail="You can only change your own records")
 
 
+def _require_admin(current_user: User) -> None:
+    if not current_user.is_admin or not current_user.is_active:
+        raise HTTPException(status_code=403, detail="Administrator access is required")
+
+
+def _prevent_unsafe_admin_change(
+    db: Session, target: User, current_user: User
+) -> None:
+    if target.id == current_user.id:
+        raise HTTPException(
+            status_code=409, detail="You cannot disable or delete your own account"
+        )
+    if target.is_admin and target.is_active:
+        active_admins = db.scalars(
+            select(User)
+            .where(User.is_admin.is_(True), User.is_active.is_(True))
+            .order_by(User.id)
+            .with_for_update()
+        ).all()
+        if len(active_admins) <= 1:
+            raise HTTPException(
+                status_code=409,
+                detail="The last active administrator cannot be disabled or deleted",
+            )
+
+
+@app.get("/admin/summary", response_model=AdminSummary)
+def admin_summary_endpoint(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AdminSummary:
+    _require_admin(current_user)
+    return AdminSummary(
+        total_users=db.scalar(select(func.count(User.id))) or 0,
+        active_users=db.scalar(
+            select(func.count(User.id)).where(User.is_active.is_(True))
+        ) or 0,
+        suspended_users=db.scalar(
+            select(func.count(User.id)).where(User.is_active.is_(False))
+        ) or 0,
+        graduates=db.scalar(
+            select(func.count(User.id)).where(
+                User.role == "graduate", User.is_admin.is_(False)
+            )
+        ) or 0,
+        mentors=db.scalar(
+            select(func.count(User.id)).where(
+                User.role == "mentor", User.is_admin.is_(False)
+            )
+        ) or 0,
+        pending_sessions=db.scalar(
+            select(func.count(MentorshipSession.id)).where(
+                MentorshipSession.status == "pending"
+            )
+        ) or 0,
+    )
+
+
+@app.get("/admin/users", response_model=list[AdminUserResponse])
+def admin_list_users_endpoint(
+    search: str = "",
+    role: str | None = None,
+    is_active: bool | None = None,
+    offset: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[AdminUserResponse]:
+    _require_admin(current_user)
+    search = search.strip()
+    if len(search) > 100 or offset < 0 or not 1 <= limit <= 100:
+        raise HTTPException(
+            status_code=422, detail="Invalid search or pagination values"
+        )
+    if role is not None and role not in {"graduate", "mentor"}:
+        raise HTTPException(status_code=422, detail="Role must be graduate or mentor")
+
+    query = select(User)
+    if search:
+        pattern = f"%{search}%"
+        query = query.where(
+            or_(User.name.ilike(pattern), User.email.ilike(pattern))
+        )
+    if role is not None:
+        query = query.where(User.role == role)
+    if is_active is not None:
+        query = query.where(User.is_active.is_(is_active))
+    users = db.scalars(
+        query.order_by(User.created_at.desc(), User.id).offset(offset).limit(limit)
+    ).all()
+    return [
+        AdminUserResponse(
+            id=user.id,
+            name=user.name,
+            email=user.email,
+            role=user.role,
+            is_admin=user.is_admin,
+            is_active=user.is_active,
+            created_at=user.created_at,
+        )
+        for user in users
+    ]
+
+
+@app.patch("/admin/users/{user_id}/status", response_model=AdminUserResponse)
+def admin_update_user_status_endpoint(
+    user_id: UUID,
+    status_data: AdminUserStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AdminUserResponse:
+    _require_admin(current_user)
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not status_data.is_active:
+        _prevent_unsafe_admin_change(db, target, current_user)
+    target.is_active = status_data.is_active
+    db.commit()
+    db.refresh(target)
+    return AdminUserResponse.model_validate(target, from_attributes=True)
+
+
+@app.delete("/admin/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def admin_delete_user_endpoint(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    _require_admin(current_user)
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    _prevent_unsafe_admin_change(db, target, current_user)
+    db.execute(
+        delete(Recommendation).where(
+            or_(
+                Recommendation.graduate_id == user_id,
+                Recommendation.mentor_id == user_id,
+            )
+        )
+    )
+    db.execute(
+        delete(MentorshipSession).where(
+            or_(
+                MentorshipSession.mentee_id == user_id,
+                MentorshipSession.mentor_id == user_id,
+            )
+        )
+    )
+    db.execute(delete(MentorAvailability).where(MentorAvailability.mentor_id == user_id))
+    goal_ids = select(MenteeGoal.id).where(MenteeGoal.mentee_id == user_id)
+    db.execute(delete(GoalUpdate).where(GoalUpdate.goal_id.in_(goal_ids)))
+    db.execute(delete(MenteeGoal).where(MenteeGoal.mentee_id == user_id))
+    if target.profile is not None:
+        db.execute(delete(ProfileSkill).where(ProfileSkill.profile_id == target.profile.id))
+        db.delete(target.profile)
+    db.delete(target)
+    db.commit()
+
+
 def create_user(user_data: UserCreate, db: Session = Depends(get_db)) -> UserResponse:
     """Create a graduate or mentor and their initial text profile."""
     user = User(
@@ -259,6 +474,12 @@ def create_user(user_data: UserCreate, db: Session = Depends(get_db)) -> UserRes
         ) from error
 
     db.refresh(user)
+    sync_profile_skills(db, user.profile, "\n".join(
+        part for part in (
+            user.profile.profile_text,
+            user.profile.career_goals,
+        ) if part
+    ))
     return UserResponse(
         id=user.id,
         name=user.name,
@@ -266,6 +487,8 @@ def create_user(user_data: UserCreate, db: Session = Depends(get_db)) -> UserRes
         role=user.role,
         profile_text=user.profile.profile_text,
         career_goals=user.profile.career_goals,
+        resume_text=user.profile.resume_text,
+        is_admin=user.is_admin,
     )
 
 
@@ -285,6 +508,8 @@ def get_user(user_id: UUID, db: Session = Depends(get_db)) -> UserResponse:
         role=user.role,
         profile_text=user.profile.profile_text if user.profile else "",
         career_goals=user.profile.career_goals if user.profile else "",
+        resume_text=user.profile.resume_text if user.profile else "",
+        is_admin=user.is_admin,
     )
 
 
@@ -320,6 +545,13 @@ def update_profile(
 
     db.commit()
     db.refresh(user)
+    sync_profile_skills(db, user.profile, "\n".join(
+        part for part in (
+            user.profile.resume_text,
+            user.profile.profile_text,
+            user.profile.career_goals,
+        ) if part
+    ))
     return UserResponse(
         id=user.id,
         name=user.name,
@@ -327,6 +559,8 @@ def update_profile(
         role=user.role,
         profile_text=user.profile.profile_text,
         career_goals=user.profile.career_goals,
+        resume_text=user.profile.resume_text,
+        is_admin=user.is_admin,
     )
 
 
@@ -344,9 +578,10 @@ def update_profile_endpoint(
 def recommend_mentors(
     graduate_id: UUID,
     db: Session = Depends(get_db),
+    available_only: bool = False,
 ) -> list[dict]:
     """Rank stored mentor profiles for a graduate."""
-    return get_recommendations(db, graduate_id)
+    return get_recommendations(db, graduate_id, available_only=available_only)
 
 
 @app.get(
@@ -357,9 +592,10 @@ def recommend_mentors_endpoint(
     graduate_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    available_only: bool = False,
 ) -> list[dict]:
     _require_read_access(graduate_id, current_user)
-    return recommend_mentors(graduate_id, db)
+    return recommend_mentors(graduate_id, db, available_only)
 
 
 @app.get("/users/{user_id}/goals", response_model=list[GoalResponse])
@@ -370,6 +606,18 @@ def get_goals_endpoint(
 ) -> list[GoalResponse]:
     _require_read_access(user_id, current_user)
     return list_goals(db, user_id)
+
+
+@app.get("/users/{mentor_id}/shared-goals", response_model=list[GoalResponse])
+def get_shared_goals_endpoint(
+    mentor_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[GoalResponse]:
+    _require_self_account(mentor_id, current_user)
+    if current_user.role != "mentor":
+        raise HTTPException(status_code=403, detail="Only mentors can view shared goals")
+    return list_shared_goals(db, mentor_id)
 
 
 @app.post(
@@ -486,7 +734,7 @@ async def upload_resume(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ) -> UserResponse:
-    """Extract a PDF or DOCX resume and replace the profile text with it."""
+    """Extract a PDF or DOCX resume into its own profile field."""
     user = db.scalar(
         select(User)
         .options(selectinload(User.profile))
@@ -509,9 +757,16 @@ async def upload_resume(
 
     if user.profile is None:
         user.profile = Profile()
-    user.profile.profile_text = extracted_text
+    user.profile.resume_text = extracted_text
     db.commit()
     db.refresh(user)
+    sync_profile_skills(db, user.profile, "\n".join(
+        part for part in (
+            user.profile.resume_text,
+            user.profile.profile_text,
+            user.profile.career_goals,
+        ) if part
+    ))
     return UserResponse(
         id=user.id,
         name=user.name,
@@ -519,6 +774,8 @@ async def upload_resume(
         role=user.role,
         profile_text=user.profile.profile_text,
         career_goals=user.profile.career_goals,
+        resume_text=user.profile.resume_text,
+        is_admin=user.is_admin,
     )
 
 

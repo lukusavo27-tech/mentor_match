@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base
-from app.models import Profile, User
+from app.models import MentorAvailability, MentorshipSession, Profile, User
 from app.schemas import (
     AvailabilityCreate,
     GoalCreate,
@@ -23,6 +23,7 @@ from app.services.mentorship import (
     create_goal,
     create_session,
     list_goals,
+    list_shared_goals,
     list_availability,
     list_sessions,
     update_goal_status,
@@ -134,6 +135,37 @@ class MentorshipFeatureTests(unittest.TestCase):
         self.assertEqual(paused.status, "paused")
         self.assertEqual(resumed.status, "active")
 
+    def test_shared_goals_require_opt_in_and_accepted_mentorship(self) -> None:
+        goal = create_goal(
+            self.db,
+            self.mentee.id,
+            GoalCreate(title="Prepare a portfolio", shared_with_mentor=True),
+        )
+        self.assertEqual(list_shared_goals(self.db, self.mentor.id), [])
+
+        starts_at = datetime.now(timezone.utc) + timedelta(days=4)
+        self.add_opening(starts_at)
+        request = create_session(
+            self.db,
+            self.mentee.id,
+            SessionCreate(mentor_id=self.mentor.id, scheduled_at=starts_at),
+        )
+        self.assertEqual(list_shared_goals(self.db, self.mentor.id), [])
+        update_session_status(
+            self.db, request.id, self.mentor.id, SessionStatusUpdate(status="accepted")
+        )
+        shared = list_shared_goals(self.db, self.mentor.id)
+        self.assertEqual([item.id for item in shared], [goal.id])
+        self.assertEqual(shared[0].mentee_name, self.mentee.name)
+
+        update_goal_status(
+            self.db,
+            self.mentee.id,
+            goal.id,
+            GoalStatusUpdate(shared_with_mentor=False),
+        )
+        self.assertEqual(list_shared_goals(self.db, self.mentor.id), [])
+
     def test_only_graduates_can_create_goals(self) -> None:
         with self.assertRaises(HTTPException) as raised:
             create_goal(self.db, self.mentor.id, GoalCreate(title="Mentor goal"))
@@ -141,7 +173,13 @@ class MentorshipFeatureTests(unittest.TestCase):
 
     def test_session_request_and_participant_status_transitions(self) -> None:
         starts_at = datetime.now(timezone.utc) + timedelta(days=4)
-        self.add_opening(starts_at)
+        opening = self.add_opening(starts_at)
+        self.assertEqual(opening.starts_at.utcoffset(), timedelta(0))
+        self.assertEqual(opening.ends_at.utcoffset(), timedelta(0))
+        serialized_start = datetime.fromisoformat(
+            opening.model_dump(mode="json")["starts_at"]
+        )
+        self.assertEqual(serialized_start.utcoffset(), timedelta(0))
         request = create_session(
             self.db,
             self.mentee.id,
@@ -169,6 +207,18 @@ class MentorshipFeatureTests(unittest.TestCase):
             request.id,
             self.mentor.id,
             SessionStatusUpdate(status="accepted"),
+        )
+        self.db.expire_all()
+        persisted = self.db.get(MentorshipSession, request.id)
+        self.assertIsNotNone(persisted)
+        self.assertEqual(persisted.status, "accepted")
+        self.assertEqual(
+            next(
+                session
+                for session in list_sessions(self.db, self.mentee.id)
+                if session.id == request.id
+            ).status,
+            "accepted",
         )
         completed = update_session_status(
             self.db,
@@ -211,6 +261,19 @@ class MentorshipFeatureTests(unittest.TestCase):
                 starts_at=starts_at,
                 ends_at=starts_at + timedelta(minutes=30),
             )
+
+    def test_availability_does_not_list_a_slot_that_has_already_started(self) -> None:
+        now = datetime.now(timezone.utc)
+        self.db.add(
+            MentorAvailability(
+                mentor_id=self.mentor.id,
+                starts_at=now - timedelta(minutes=10),
+                ends_at=now + timedelta(minutes=50),
+            )
+        )
+        self.db.commit()
+
+        self.assertEqual(list_availability(self.db, self.mentor.id), [])
 
     def test_nonparticipant_cannot_change_a_session(self) -> None:
         starts_at = datetime.now(timezone.utc) + timedelta(days=2)

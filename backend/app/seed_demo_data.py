@@ -1,16 +1,52 @@
 """Create repeatable demo mentors and mentees across several career paths."""
 from datetime import datetime, time, timedelta, timezone
+import os
 from uuid import UUID
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_engine, init_db
-from app.models import MentorAvailability, Profile, User
+from app.models import (
+    GoalUpdate,
+    MenteeGoal,
+    MentorAvailability,
+    MentorshipSession,
+    Profile,
+    User,
+)
 from app.services.auth import hash_password
+from app.services.recommendation_service import (
+    get_recommendations,
+    sync_profile_skills,
+)
 
 # Development-only credential shared by the seeded demo accounts.
 DEMO_PASSWORD = "MentorMatchDemo2026!"
+
+DEMO_GOALS = (
+    ("20000000-0000-4000-8000-000000000001", "Build and deploy a portfolio API", "Publish a FastAPI portfolio project using PostgreSQL.", 50, True),
+    ("20000000-0000-4000-8000-000000000001", "Practice technical interviews", "Complete backend interview exercises and system-design questions.", 25, False),
+    ("20000000-0000-4000-8000-000000000002", "Complete a data-science portfolio", "Build two predictive-analysis projects with documented results.", 40, True),
+    ("20000000-0000-4000-8000-000000000003", "Study cloud security fundamentals", "Review identity, networking, logging, and incident-response concepts.", 30, True),
+    ("20000000-0000-4000-8000-000000000004", "Build an accessible React application", "Create a responsive application using semantic HTML and keyboard testing.", 60, True),
+    ("20000000-0000-4000-8000-000000000005", "Complete financial modeling exercises", "Practice forecasting, valuation, and spreadsheet analysis.", 35, False),
+)
+
+
+def require_local_database() -> None:
+    """Allow demo seeding only on SQLite or a loopback PostgreSQL instance."""
+    database_url = os.getenv("DATABASE_URL", "")
+    parsed = urlparse(database_url)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme.startswith("sqlite"):
+        return
+    if host not in {"localhost", "127.0.0.1", "::1"}:
+        raise RuntimeError(
+            "Demo seeding is restricted to SQLite or loopback PostgreSQL. "
+            "The configured database host is not local."
+        )
 
 DEMO_USERS = (
     {
@@ -153,6 +189,7 @@ DEMO_USERS = (
 
 
 def seed_demo_data() -> tuple[int, int]:
+    require_local_database()
     init_db()
     created = {"mentor": 0, "graduate": 0}
     with Session(get_engine()) as db:
@@ -160,6 +197,9 @@ def seed_demo_data() -> tuple[int, int]:
             existing = db.scalar(select(User).where(User.email == item["email"]))
             if existing is not None:
                 existing.password_hash = hash_password(DEMO_PASSWORD)
+                if existing.profile is not None:
+                    existing.profile.profile_text = item["profile_text"]
+                    existing.profile.career_goals = item["career_goals"]
                 continue
             user = User(
                 id=UUID(item["id"]),
@@ -181,13 +221,6 @@ def seed_demo_data() -> tuple[int, int]:
             (entry for entry in DEMO_USERS if entry["role"] == "mentor")
         ):
             mentor_id = UUID(item["id"])
-            existing_opening = db.scalar(
-                select(MentorAvailability.id)
-                .where(MentorAvailability.mentor_id == mentor_id)
-                .limit(1)
-            )
-            if existing_opening is not None:
-                continue
             # Varied, repeatable sample hours give demo mentees bookable slots.
             # These are demo openings, not claimed availability from real users.
             for day_offset, hour_offset in ((1, 0), (3, 1), (5, 2)):
@@ -196,6 +229,14 @@ def seed_demo_data() -> tuple[int, int]:
                     time(hour=9 + ((mentor_index * 2 + hour_offset * 3) % 9)),
                     tzinfo=timezone.utc,
                 )
+                existing_opening = db.scalar(
+                    select(MentorAvailability.id).where(
+                        MentorAvailability.mentor_id == mentor_id,
+                        MentorAvailability.starts_at == starts_at,
+                    )
+                )
+                if existing_opening is not None:
+                    continue
                 db.add(
                     MentorAvailability(
                         mentor_id=mentor_id,
@@ -203,7 +244,87 @@ def seed_demo_data() -> tuple[int, int]:
                         ends_at=starts_at + timedelta(hours=1),
                     )
                 )
+
+        for graduate_id_text, title, description, progress, shared in DEMO_GOALS:
+            graduate_id = UUID(graduate_id_text)
+            existing_goal = db.scalar(
+                select(MenteeGoal).where(
+                    MenteeGoal.mentee_id == graduate_id,
+                    MenteeGoal.title == title,
+                )
+            )
+            if existing_goal is not None:
+                continue
+            goal = MenteeGoal(
+                mentee_id=graduate_id,
+                title=title,
+                description=description,
+                target_date=(datetime.now(timezone.utc) + timedelta(days=45)).date(),
+                status="completed" if progress == 100 else "active",
+                progress_percent=progress,
+                shared_with_mentor=shared,
+            )
+            goal.updates.append(
+                GoalUpdate(
+                    note="Sample progress update added by the local demo seeder.",
+                    progress_percent=progress,
+                )
+            )
+            db.add(goal)
+
+        mentee_id = UUID("20000000-0000-4000-8000-000000000001")
+        mentor_id = UUID("10000000-0000-4000-8000-000000000001")
+        existing_session = db.scalar(
+            select(MentorshipSession).where(
+                MentorshipSession.mentee_id == mentee_id,
+                MentorshipSession.mentor_id == mentor_id,
+            )
+        )
+        if existing_session is None:
+            first_opening = db.scalar(
+                select(MentorAvailability)
+                .where(MentorAvailability.mentor_id == mentor_id)
+                .order_by(MentorAvailability.starts_at)
+                .limit(1)
+            )
+            if first_opening is not None:
+                db.add(
+                    MentorshipSession(
+                        mentee_id=mentee_id,
+                        mentor_id=mentor_id,
+                        scheduled_at=first_opening.starts_at,
+                        agenda="Review portfolio architecture and backend career progression.",
+                        status="accepted",
+                    )
+                )
         db.commit()
+
+    with Session(get_engine()) as db:
+        for item in DEMO_USERS:
+            user = db.scalar(
+                select(User)
+                .where(User.id == UUID(item["id"]))
+            )
+            if user is not None and user.profile is not None:
+                sync_profile_skills(
+                    db,
+                    user.profile,
+                    "\n".join(
+                        part
+                        for part in (
+                            user.profile.resume_text,
+                            user.profile.profile_text,
+                            user.profile.career_goals,
+                        )
+                        if part
+                    ),
+                )
+
+    # Persist a repeatable first-page recommendation snapshot for demo graduates.
+    with Session(get_engine()) as db:
+        for item in DEMO_USERS:
+            if item["role"] == "graduate":
+                get_recommendations(db, UUID(item["id"]))
     return created["mentor"], created["graduate"]
 
 

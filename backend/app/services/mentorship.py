@@ -20,7 +20,7 @@ from app.schemas import (
 )
 
 
-def _goal_response(goal: MenteeGoal) -> GoalResponse:
+def _goal_response(goal: MenteeGoal, mentee_name: str | None = None) -> GoalResponse:
     return GoalResponse(
         id=goal.id,
         mentee_id=goal.mentee_id,
@@ -29,6 +29,8 @@ def _goal_response(goal: MenteeGoal) -> GoalResponse:
         target_date=goal.target_date,
         status=goal.status,
         progress_percent=goal.progress_percent,
+        shared_with_mentor=goal.shared_with_mentor,
+        mentee_name=mentee_name,
         created_at=goal.created_at,
         updates=[
             GoalUpdateResponse(
@@ -58,6 +60,30 @@ def list_goals(db: Session, mentee_id: UUID) -> list[GoalResponse]:
     return [_goal_response(goal) for goal in goals]
 
 
+def list_shared_goals(db: Session, mentor_id: UUID) -> list[GoalResponse]:
+    """List opted-in goals only for graduates with an accepted/completed session."""
+    mentor = db.get(User, mentor_id)
+    if mentor is None or mentor.role != "mentor":
+        raise HTTPException(status_code=404, detail="Mentor account not found")
+    mentorship_exists = (
+        select(MentorshipSession.id)
+        .where(
+            MentorshipSession.mentor_id == mentor_id,
+            MentorshipSession.mentee_id == MenteeGoal.mentee_id,
+            MentorshipSession.status.in_(["accepted", "completed"]),
+        )
+        .exists()
+    )
+    rows = db.execute(
+        select(MenteeGoal, User.name)
+        .join(User, User.id == MenteeGoal.mentee_id)
+        .options(selectinload(MenteeGoal.updates))
+        .where(MenteeGoal.shared_with_mentor.is_(True), mentorship_exists)
+        .order_by(MenteeGoal.created_at.desc())
+    ).all()
+    return [_goal_response(goal, mentee_name) for goal, mentee_name in rows]
+
+
 def create_goal(db: Session, mentee_id: UUID, data: GoalCreate) -> GoalResponse:
     mentee = db.get(User, mentee_id)
     if mentee is None:
@@ -69,6 +95,7 @@ def create_goal(db: Session, mentee_id: UUID, data: GoalCreate) -> GoalResponse:
         title=data.title,
         description=data.description,
         target_date=data.target_date,
+        shared_with_mentor=data.shared_with_mentor,
     )
     db.add(goal)
     db.commit()
@@ -109,7 +136,10 @@ def update_goal_status(
     )
     if goal is None:
         raise HTTPException(status_code=404, detail="Goal not found")
-    goal.status = data.status
+    if data.status is not None:
+        goal.status = data.status
+    if data.shared_with_mentor is not None:
+        goal.shared_with_mentor = data.shared_with_mentor
     db.commit()
     db.refresh(goal)
     return _goal_response(goal)
@@ -183,7 +213,10 @@ def list_availability(db: Session, mentor_id: UUID) -> list[AvailabilityResponse
     now = datetime.now(timezone.utc)
     slots = db.scalars(
         select(MentorAvailability)
-        .where(MentorAvailability.mentor_id == mentor_id, MentorAvailability.ends_at > now)
+        .where(
+            MentorAvailability.mentor_id == mentor_id,
+            MentorAvailability.starts_at > now,
+        )
         .order_by(MentorAvailability.starts_at)
     ).all()
     sessions = db.scalars(

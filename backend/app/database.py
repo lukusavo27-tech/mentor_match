@@ -1,6 +1,7 @@
 from collections.abc import Generator
+from pathlib import Path
 
-from sqlalchemy import Engine, create_engine, inspect, text
+from sqlalchemy import Connection, Engine, create_engine, inspect
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import get_database_url
@@ -38,37 +39,26 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def init_db() -> None:
-    """Create the initial tables for local development."""
-    # Import models so their tables are registered on Base.metadata.
+    """Apply versioned migrations, refusing to guess at an untracked schema."""
+    from alembic import command
+    from alembic.config import Config
+
     from app import models  # noqa: F401
 
     engine = get_engine()
-    Base.metadata.create_all(bind=engine)
-
-    ensure_career_goals_column(engine)
-    ensure_password_hash_column(engine)
-
-
-def ensure_career_goals_column(engine: Engine) -> None:
-    """Add the career_goals field to profiles created by the earlier schema."""
-    profile_columns = {
-        column["name"] for column in inspect(engine).get_columns("profiles")
-    }
-    if "career_goals" not in profile_columns:
-        with engine.begin() as connection:
-            connection.execute(
-                text(
-                    "ALTER TABLE profiles "
-                    "ADD COLUMN career_goals TEXT NOT NULL DEFAULT ''"
-                )
-            )
+    require_versioned_schema(engine)
+    alembic_config = Config(
+        str(Path(__file__).resolve().parents[1] / "alembic.ini")
+    )
+    command.upgrade(alembic_config, "head")
 
 
-def ensure_password_hash_column(engine: Engine) -> None:
-    """Add nullable credential storage to databases created before accounts."""
-    user_columns = {column["name"] for column in inspect(engine).get_columns("users")}
-    if "password_hash" not in user_columns:
-        with engine.begin() as connection:
-            connection.execute(
-                text("ALTER TABLE users ADD COLUMN password_hash VARCHAR(255)")
-            )
+def require_versioned_schema(engine: Engine | Connection) -> None:
+    """Require explicit baseline adoption before migrating existing databases."""
+    existing_tables = set(inspect(engine).get_table_names())
+    model_tables = set(Base.metadata.tables)
+    if "alembic_version" not in existing_tables and existing_tables & model_tables:
+        raise RuntimeError(
+            "This database has tables but no Alembic history. Verify its schema, "
+            "then run `alembic stamp legacy_baseline` and `alembic upgrade head`."
+        )

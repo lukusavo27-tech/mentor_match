@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowUpRight, BriefcaseBusiness, CalendarClock, MapPin } from "lucide-react";
+import { BriefcaseBusiness, CalendarClock, CheckCircle2, ChevronDown, ChevronUp, MapPin, X } from "lucide-react";
 import api from "../services/api";
 
 const formatTime = (value) => new Date(value).toLocaleString([], {
@@ -14,6 +14,7 @@ export default function MentorCard({ mentor, onView, onBook }) {
   const [selectedTime, setSelectedTime] = useState("");
   const [agenda, setAgenda] = useState("");
   const [booking, setBooking] = useState(false);
+  const [bookingConfirmation, setBookingConfirmation] = useState("");
 
   useEffect(() => {
     if (!expanded) return undefined;
@@ -37,9 +38,11 @@ export default function MentorCard({ mentor, onView, onBook }) {
       agenda
     });
     if (saved) {
+      setBookingConfirmation(selectedTime);
       setAvailability((current) => current.filter((slot) => slot.starts_at !== selectedTime));
       setSelectedTime("");
       setAgenda("");
+      setExpanded(false);
     }
     setBooking(false);
   };
@@ -55,7 +58,9 @@ export default function MentorCard({ mentor, onView, onBook }) {
       </div>
       {(mentor.company || mentor.experience || mentor.location) && <div className="mt-4 space-y-2 text-xs text-slate-500">{(mentor.company || mentor.experience) && <div className="flex items-center gap-2"><BriefcaseBusiness size={14}/>{[mentor.company, mentor.experience].filter(Boolean).join(" · ")}</div>}{mentor.location && <div className="flex items-center gap-2"><MapPin size={14}/>{mentor.location}</div>}</div>}
       <div className="mt-4 flex flex-wrap gap-2">{mentor.tags.map((tag) => <span key={tag} className="rounded-full bg-blue-50 px-3 py-1.5 text-[10px] font-semibold text-blue-700">{tag}</span>)}</div>
-      {expanded && <div className="mt-4 space-y-4 rounded-xl bg-white/80 p-4">
+      {bookingConfirmation && <div role="status" className="mt-4 flex items-start justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900"><div className="flex gap-2"><CheckCircle2 size={16} className="mt-0.5 shrink-0"/><p><strong>Request sent.</strong> {formatTime(bookingConfirmation)} is pending the mentor’s response.</p></div><button type="button" onClick={() => setBookingConfirmation("")} aria-label="Dismiss booking confirmation" className="shrink-0 rounded p-1 hover:bg-emerald-100"><X size={15}/></button></div>}
+      <div aria-hidden={!expanded} inert={!expanded} className={`mentor-details mt-4 rounded-xl bg-white/80 ${expanded ? "mentor-details-open" : "mentor-details-closed"}`}>
+      <div className="space-y-4 p-4">
         <div><h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">Mentor profile</h4><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{mentor.profile_text || "No detailed profile has been added yet."}</p></div>
         <div className="border-t border-blue-100 pt-4">
           <div className="flex items-center gap-2"><CalendarClock size={16} className="text-blue-700"/><h4 className="text-sm font-bold text-slate-800">Available session times</h4></div>
@@ -69,8 +74,8 @@ export default function MentorCard({ mentor, onView, onBook }) {
             <p className="text-xs leading-5 text-slate-500">Your request is pending until the mentor accepts it.</p>
           </form>}
         </div>
-      </div>}
-      <button onClick={() => { setExpanded((current) => !current); onView?.(); }} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-800">{expanded ? "Hide profile and times" : "View profile and available times"} <ArrowUpRight size={16}/></button>
+      </div></div>
+      <button aria-expanded={expanded} onClick={() => { setExpanded((current) => !current); onView?.(); }} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-800">{expanded ? "Hide profile" : "View profile"} {expanded ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}</button>
     </article>
   );
 }

@@ -26,7 +26,10 @@ class MatchingEngine:
         # Return a complete result set with zero scores in that case.
         if any(cleaned.split() for cleaned in corpus):
             try:
-                vectorizer = TfidfVectorizer()
+                vectorizer = TfidfVectorizer(
+                    ngram_range=(1, 2),
+                    sublinear_tf=True,
+                )
                 matrix = vectorizer.fit_transform(corpus)
                 scores = cosine_similarity(matrix[0], matrix[1:])[0]
             except ValueError as error:

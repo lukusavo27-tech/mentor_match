@@ -1,16 +1,17 @@
-import { LayoutDashboard, UserRound, Users, CalendarDays, Settings, LogOut, Sparkles, Target } from "lucide-react";
+import { LayoutDashboard, UserRound, Users, CalendarDays, Settings, LogOut, Sparkles, Target, FileUp } from "lucide-react";
 
 const graduateLinks = [
   [LayoutDashboard, "Overview", "overview"], [UserRound, "My profile", "profile"],
-  [Users, "Find mentors", "mentors"], [Target, "Goals", "goals"],
+  [Users, "Find mentors", "mentors"], [FileUp, "Resume", "resume"], [Target, "Goals", "goals"],
   [CalendarDays, "Sessions", "sessions"], [Settings, "Settings", "settings"]
 ];
 const mentorLinks = [
   [LayoutDashboard, "Overview", "overview"], [UserRound, "My profile", "profile"],
-  [CalendarDays, "Availability & sessions", "sessions"], [Settings, "Settings", "settings"]
+  [Target, "Mentee goals", "goals"], [CalendarDays, "Availability & sessions", "sessions"], [Settings, "Settings", "settings"]
 ];
+const adminLinks = [[LayoutDashboard, "Administration", "admin"]];
 
-export default function Sidebar({ active = "overview", onNavigate, onSignOut, role = "Graduate", accountName = "" }) {
+export default function Sidebar({ active = "overview", onNavigate, onSignOut, role = "Graduate", accountName = "", profileCompleteness = null }) {
   const initials = accountName
     .split(/\s+/)
     .filter(Boolean)
@@ -26,18 +27,18 @@ export default function Sidebar({ active = "overview", onNavigate, onSignOut, ro
       </div>
       <div className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[.2em] text-slate-400">Workspace</div>
       <nav className="flex gap-1 overflow-x-auto lg:flex-col">
-        {(role === "Mentor" ? mentorLinks : graduateLinks).map(([Icon, label, id]) => (
+        {(role === "Admin" ? adminLinks : role === "Mentor" ? mentorLinks : graduateLinks).map(([Icon, label, id]) => (
           <button key={id} onClick={() => onNavigate(id)} className={`flex shrink-0 items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition ${active === id ? "bg-blue-700 text-white shadow-lg shadow-blue-200" : "text-slate-600 hover:bg-blue-50 hover:text-blue-700"}`}>
             <Icon size={18}/>{label}
           </button>
         ))}
       </nav>
-      <div className="mt-auto hidden rounded-2xl bg-blue-50 p-4 lg:block">
+      {role !== "Admin" && profileCompleteness !== null && <div className="mt-auto hidden rounded-2xl bg-blue-50 p-4 lg:block">
         <div className="mb-2 flex items-center gap-2 text-sm font-bold text-blue-900"><Sparkles size={16}/> {role === "Mentor" ? "Grow your impact" : "Make progress"}</div>
         <p className="text-xs leading-5 text-blue-800/75">{role === "Mentor" ? "Keep your profile and open times current so graduates can connect with you." : "Complete your profile to get more relevant mentor recommendations."}</p>
-        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-blue-200"><div className="h-full w-[85%] rounded-full bg-blue-700"/></div>
-        <div className="mt-1 text-right text-[10px] font-bold text-blue-700">85% complete</div>
-      </div>
+        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-blue-200"><div className="h-full rounded-full bg-blue-700" style={{ width: `${profileCompleteness}%` }}/></div>
+        <div className="mt-1 text-right text-[10px] font-bold text-blue-700">{profileCompleteness}% complete</div>
+      </div>}
       <button type="button" onClick={onSignOut} className="mt-4 flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-slate-500 hover:bg-slate-100"><LogOut size={18}/> Sign out</button>
       {accountName && <div className="mt-4 flex items-center gap-3 border-t border-blue-100 pt-4">
         <div className="grid h-10 w-10 place-items-center rounded-full bg-blue-100 text-sm font-bold text-blue-800">{initials}</div>

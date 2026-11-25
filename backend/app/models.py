@@ -3,13 +3,17 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     CheckConstraint,
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
+    Float,
     Integer,
     String,
     Text,
     Uuid,
+    UniqueConstraint,
+    JSON,
     func,
     text,
 )
@@ -29,6 +33,12 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_admin: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -49,6 +59,9 @@ class Profile(Base):
     career_goals: Mapped[str] = mapped_column(
         Text, nullable=False, default="", server_default=text("''")
     )
+    resume_text: Mapped[str] = mapped_column(
+        Text, nullable=False, default="", server_default=text("''")
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -57,6 +70,45 @@ class Profile(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="profile")
+    skills: Mapped[list["ProfileSkill"]] = relationship(
+        back_populates="profile", cascade="all, delete-orphan"
+    )
+
+
+class ProfileSkill(Base):
+    __tablename__ = "profile_skills"
+    __table_args__ = (
+        UniqueConstraint("profile_id", "skill", name="uq_profile_skill"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    skill: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    profile: Mapped[Profile] = relationship(back_populates="skills")
+
+
+class Recommendation(Base):
+    __tablename__ = "recommendations"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    graduate_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    mentor_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    shared_skills: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
 
 class MenteeGoal(Base):
@@ -81,6 +133,9 @@ class MenteeGoal(Base):
     target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     progress_percent: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    shared_with_mentor: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
