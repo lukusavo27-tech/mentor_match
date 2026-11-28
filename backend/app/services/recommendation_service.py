@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
     MentorAvailability,
+    MentorOptOut,
     MentorshipSession,
     Profile,
     ProfileSkill,
@@ -51,6 +52,9 @@ def get_recommendations(
     if graduate.profile is None:
         raise HTTPException(status_code=400, detail="Graduate profile not found")
 
+    opted_out_ids = set(db.scalars(
+        select(MentorOptOut.mentor_id).where(MentorOptOut.mentee_id == graduate_id)
+    ).all())
     mentors = db.scalars(
         select(User)
         .join(Profile)
@@ -70,7 +74,7 @@ def get_recommendations(
             "text": mentor.profile.profile_text,
         }
         for mentor in mentors
-        if mentor.profile is not None
+        if mentor.profile is not None and mentor.id not in opted_out_ids
     ]
     if not mentor_inputs:
         db.execute(

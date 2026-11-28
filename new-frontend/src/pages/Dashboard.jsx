@@ -48,7 +48,7 @@ export default function Dashboard({ adminRoute = false }) {
   const [sessions, setSessions] = useState([]);
   const [availability, setAvailability] = useState([]);
   const [resumeUploading, setResumeUploading] = useState(false);
-  const [profile, setProfile] = useState({ name: "", email: "", profile_text: "", career_goals: "", resume_text: "" });
+  const [profile, setProfile] = useState({ name: "", email: "", phone_number: "", profile_text: "", career_goals: "", resume_text: "" });
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const isDemoAccount = demoAccounts.some((account) => account.id === selectedAccountId);
@@ -88,7 +88,7 @@ export default function Dashboard({ adminRoute = false }) {
       .then(({ data }) => {
         if (!cancelled) {
           localStorage.removeItem("mentormatch_is_admin");
-          setProfile({ name: data.name, email: data.email, profile_text: data.profile_text, career_goals: data.career_goals, resume_text: data.resume_text || "" });
+          setProfile({ name: data.name, email: data.email, phone_number: data.phone_number || "", profile_text: data.profile_text, career_goals: data.career_goals, resume_text: data.resume_text || "" });
           setRole(data.role === "mentor" ? "Mentor" : "Graduate");
           setIsAdmin(Boolean(data.is_admin));
           setIdentityStatus(data.is_admin ? "admin" : "user");
@@ -175,7 +175,7 @@ export default function Dashboard({ adminRoute = false }) {
     setIdentityStatus("anonymous");
     setSelectedAccountId("");
     setActive("overview");
-    setProfile({ name: "", email: "", profile_text: "", career_goals: "", resume_text: "" });
+    setProfile({ name: "", email: "", phone_number: "", profile_text: "", career_goals: "", resume_text: "" });
     setGoals([]);
     setRecommendations([]);
     setNotice("");
@@ -193,9 +193,10 @@ export default function Dashboard({ adminRoute = false }) {
     try {
       const response = await api.put(`/users/${selectedAccountId}/profile`, {
         profile_text: profile.profile_text,
-        career_goals: profile.career_goals
+        career_goals: profile.career_goals,
+        phone_number: profile.phone_number
       });
-      setProfile({ name: response.data.name, email: response.data.email, profile_text: response.data.profile_text, career_goals: response.data.career_goals, resume_text: response.data.resume_text || "" });
+      setProfile({ name: response.data.name, email: response.data.email, phone_number: response.data.phone_number || "", profile_text: response.data.profile_text, career_goals: response.data.career_goals, resume_text: response.data.resume_text || "" });
       showNotice("Your profile and career goals were saved.");
     } catch (error) {
       showNotice(getApiErrorMessage(error, "Could not save your profile."), "error");
@@ -232,6 +233,10 @@ export default function Dashboard({ adminRoute = false }) {
     () => api.patch(`/users/${selectedAccountId}/goals/${goalId}`, { shared_with_mentor: sharedWithMentor }),
     sharedWithMentor ? "Goal shared with eligible mentors." : "Goal sharing turned off."
   );
+  const updateGoalLink = (goalId, data) => saveWorkspaceRecord(
+    () => api.patch(`/users/${selectedAccountId}/goals/${goalId}`, data),
+    "Goal review link saved."
+  );
   const addAvailability = (data) => saveWorkspaceRecord(
     () => api.post(`/users/${selectedAccountId}/availability`, data),
     "Availability added. Graduates can now request this time."
@@ -244,6 +249,13 @@ export default function Dashboard({ adminRoute = false }) {
     () => api.post(`/users/${selectedAccountId}/sessions`, data),
     "Session request sent. The mentor will need to accept it."
   );
+  const optOutMentee = (session) => {
+    if (!window.confirm(`Opt out of ${session.mentee_name}? This ends any active session and prevents future requests and matches.`)) return false;
+    return saveWorkspaceRecord(
+      () => api.post(`/sessions/${session.id}/opt-out`),
+      `You opted out of ${session.mentee_name}.`
+    );
+  };
   const updateSession = (sessionId, status) => saveWorkspaceRecord(
     () => api.patch(`/sessions/${sessionId}`, { status }),
     status === "accepted" ? "Session confirmed. Both participants can now see it in their session list." : status === "declined" ? "Session declined. The graduate can request another available time." : status === "completed" ? "Session marked complete." : "Session cancelled."
@@ -292,7 +304,7 @@ export default function Dashboard({ adminRoute = false }) {
     setAuthToken(session.access_token);
     setUserId(account.id);
     setSelectedAccountId(account.id);
-    setProfile({ name: account.name, email: account.email, profile_text: account.profile_text, career_goals: account.career_goals, resume_text: account.resume_text || "" });
+    setProfile({ name: account.name, email: account.email, phone_number: account.phone_number || "", profile_text: account.profile_text, career_goals: account.career_goals, resume_text: account.resume_text || "" });
     setRole(account.role === "mentor" ? "Mentor" : "Graduate");
     setIsAdmin(Boolean(account.is_admin));
     setIdentityStatus(account.is_admin ? "admin" : "user");
@@ -318,12 +330,14 @@ export default function Dashboard({ adminRoute = false }) {
         profile.career_goals.trim().length > 0,
         profile.name.trim().length > 0,
         profile.email.trim().length > 0,
-      ].filter(Boolean).length * 25)
+        profile.phone_number.trim().length > 0,
+      ].filter(Boolean).length * 20)
     : ([
         profile.profile_text.trim().length > 0,
         profile.name.trim().length > 0,
         profile.email.trim().length > 0,
-      ].filter(Boolean).length * 100 / 3);
+        profile.phone_number.trim().length > 0,
+      ].filter(Boolean).length * 25);
   const liveProfileCompleteness = Math.round(profileCompleteness);
   const resumeStatus = profile.resume_text.trim()
     ? "Resume text extracted"
@@ -364,11 +378,11 @@ export default function Dashboard({ adminRoute = false }) {
           <div className="glass mt-6 flex flex-col items-center justify-between gap-4 rounded-2xl p-5 sm:flex-row"><div className="flex w-full items-center gap-3"><div className="shrink-0 rounded-xl bg-blue-50 p-3 text-blue-700"><UploadCloud size={22}/></div><div><h3 className="font-bold text-slate-900">Update your resume</h3><p className="text-xs leading-5 text-slate-500">Upload a PDF or DOCX (up to 10 MB). Extracted text is stored separately; the original file is not stored.</p></div></div><button disabled={resumeUploading} onClick={() => setActive("resume")} className="w-full shrink-0 rounded-xl border border-blue-200 bg-white px-4 py-3 text-sm font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-60 sm:w-auto">{resumeUploading ? "Reading resume…" : "Choose resume"}</button></div>
         </>}
         {active === "mentors" && <><div className="mb-5 flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-slate-500">Matches for {profile.name || "the selected graduate"}</p><button onClick={() => { setNotice(""); setRecommendationRevision((revision) => revision + 1); }} className="inline-flex items-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-bold text-white"><Sparkles size={16}/> Refresh matches</button></div>{recommendationsLoading && <p className="mb-4 text-sm text-slate-500">Loading recommendations…</p>}{recommendationError && <Notice message={recommendationError} kind="error" onDismiss={() => setRecommendationError("")} />}{!recommendationsLoading && !recommendationError && matchedMentors.length === 0 && <p className="mb-4 rounded-xl bg-white/70 p-4 text-sm text-slate-500">No mentor matches are available for this profile yet.</p>}<div className="grid gap-4 xl:grid-cols-2">{matchedMentors.map(m => <MentorCard key={m.mentor_id} mentor={m} onBook={bookSession}/>)}</div></>}
-        {active === "profile" && <form onSubmit={saveProfile} className="glass max-w-3xl rounded-2xl p-6"><h2 className="text-lg font-extrabold">{role === "Mentor" ? "Mentor profile" : "Professional profile"}</h2><p className="mt-1 text-sm text-slate-500">{canEditProfile ? "Your profile is saved to MentorMatch." : "Demo graduate profiles are shared and read-only. Register a graduate account to manage your own profile."}</p>{profileLoading && <p className="mt-3 text-sm text-blue-700">Loading saved profile…</p>}{role === "Graduate" && <div className="mt-5 flex flex-col items-center justify-between gap-3 rounded-xl bg-blue-50/80 p-4 sm:flex-row"><div><h3 className="text-sm font-bold text-slate-800">Resume</h3><p className="mt-1 text-xs leading-5 text-slate-600">Your extracted resume is stored separately from this profile and career goals. All three contribute to matching.</p></div><button type="button" disabled={resumeUploading} onClick={() => setActive("resume")} className="w-full rounded-xl border border-blue-200 bg-white px-4 py-3 text-sm font-bold text-blue-700 disabled:opacity-60 sm:w-auto">{resumeUploading ? "Reading resume…" : "Update resume"}</button></div>}<div className="mt-6 grid gap-4 sm:grid-cols-2"><label className="text-xs font-bold text-slate-600">Full name<input required maxLength={120} value={profile.name} disabled className="mt-2 w-full rounded-xl border border-blue-100 bg-white/80 px-4 py-3 text-sm font-medium text-slate-800 disabled:bg-slate-100"/></label><label className="text-xs font-bold text-slate-600">Email<input required type="email" maxLength={255} value={profile.email} disabled className="mt-2 w-full rounded-xl border border-blue-100 bg-white/80 px-4 py-3 text-sm font-medium text-slate-800 disabled:bg-slate-100"/></label><label className="text-xs font-bold text-slate-600 sm:col-span-2">{role === "Mentor" ? "Expertise and professional experience" : "Education, career interest, and skills"}<textarea maxLength={20000} rows={5} value={profile.profile_text} onChange={updateProfileField("profile_text")} disabled={!canEditProfile} className="mt-2 w-full rounded-xl border border-blue-100 bg-white/80 px-4 py-3 text-sm font-medium text-slate-800"/></label>{role === "Graduate" && <label className="text-xs font-bold text-slate-600 sm:col-span-2">Career goals<textarea maxLength={5000} rows={3} value={profile.career_goals} onChange={updateProfileField("career_goals")} disabled={!canEditProfile} className="mt-2 w-full rounded-xl border border-blue-100 bg-white/80 px-4 py-3 text-sm font-medium text-slate-800"/></label>}</div><button disabled={!canEditProfile || profileSaving || profileLoading} className="mt-5 rounded-xl bg-blue-700 px-5 py-3 text-sm font-bold text-white disabled:cursor-wait disabled:opacity-60">{profileSaving ? "Saving…" : "Save changes"}</button></form>}
+        {active === "profile" && <form onSubmit={saveProfile} className="glass max-w-3xl rounded-2xl p-6"><h2 className="text-lg font-extrabold">{role === "Mentor" ? "Mentor profile" : "Professional profile"}</h2><p className="mt-1 text-sm text-slate-500">{canEditProfile ? "Your profile is saved to MentorMatch." : "Demo graduate profiles are shared and read-only. Register a graduate account to manage your own profile."}</p>{profileLoading && <p className="mt-3 text-sm text-blue-700">Loading saved profile…</p>}{role === "Graduate" && <div className="mt-5 flex flex-col items-center justify-between gap-3 rounded-xl bg-blue-50/80 p-4 sm:flex-row"><div><h3 className="text-sm font-bold text-slate-800">Resume</h3><p className="mt-1 text-xs leading-5 text-slate-600">Your extracted resume is stored separately from this profile and career goals. All three contribute to matching.</p></div><button type="button" disabled={resumeUploading} onClick={() => setActive("resume")} className="w-full rounded-xl border border-blue-200 bg-white px-4 py-3 text-sm font-bold text-blue-700 disabled:opacity-60 sm:w-auto">{resumeUploading ? "Reading resume…" : "Update resume"}</button></div>}<div className="mt-6 grid gap-4 sm:grid-cols-2"><label className="text-xs font-bold text-slate-600">Full name<input required maxLength={120} value={profile.name} disabled className="mt-2 w-full rounded-xl border border-blue-100 bg-white/80 px-4 py-3 text-sm font-medium text-slate-800 disabled:bg-slate-100"/></label><label className="text-xs font-bold text-slate-600">Email<input required type="email" maxLength={255} value={profile.email} disabled className="mt-2 w-full rounded-xl border border-blue-100 bg-white/80 px-4 py-3 text-sm font-medium text-slate-800 disabled:bg-slate-100"/></label><label className="text-xs font-bold text-slate-600 sm:col-span-2">WhatsApp phone number<input required type="tel" minLength={7} maxLength={32} pattern="\+[1-9][0-9 ()-]{6,29}" placeholder="+254 712 345 678" value={profile.phone_number || ""} onChange={updateProfileField("phone_number")} disabled={!canEditProfile} className="mt-2 w-full rounded-xl border border-blue-100 bg-white/80 px-4 py-3 text-sm font-medium text-slate-800"/><span className="mt-1 block font-normal text-slate-500">Include your country code. Shared with the other participant after a session is accepted.</span></label><label className="text-xs font-bold text-slate-600 sm:col-span-2">{role === "Mentor" ? "Expertise and professional experience" : "Education, career interest, and skills"}<textarea maxLength={20000} rows={5} value={profile.profile_text} onChange={updateProfileField("profile_text")} disabled={!canEditProfile} className="mt-2 w-full rounded-xl border border-blue-100 bg-white/80 px-4 py-3 text-sm font-medium text-slate-800"/></label>{role === "Graduate" && <label className="text-xs font-bold text-slate-600 sm:col-span-2">Career goals<textarea maxLength={5000} rows={3} value={profile.career_goals} onChange={updateProfileField("career_goals")} disabled={!canEditProfile} className="mt-2 w-full rounded-xl border border-blue-100 bg-white/80 px-4 py-3 text-sm font-medium text-slate-800"/></label>}</div><button disabled={!canEditProfile || profileSaving || profileLoading} className="mt-5 rounded-xl bg-blue-700 px-5 py-3 text-sm font-bold text-white disabled:cursor-wait disabled:opacity-60">{profileSaving ? "Saving…" : "Save changes"}</button></form>}
         {active === "resume" && role === "Graduate" && <ResumePanel canManage={canManageAccount && !isDemoAccount} isDemoAccount={isDemoAccount} uploading={resumeUploading} resumeText={profile.resume_text} onUpload={uploadResume}/>}
         {active === "resume" && role === "Mentor" && <p className="rounded-xl bg-white/70 p-5 text-sm text-slate-500">Resume upload is available for graduate profiles. Update your expertise in My profile.</p>}
-        {active === "goals" && <GoalsPanel goals={goals} loading={workspaceLoading} canManage={canManageAccount && role === "Graduate"} mentorView={role === "Mentor"} onCreate={createGoal} onUpdate={updateGoal} onStatus={updateGoalStatus} onShare={updateGoalSharing}/>}
-        {active === "sessions" && <SessionsPanel role={role} userId={selectedAccountId} isDemoAccount={isDemoAccount} mentors={matchedMentors} slots={availability} sessions={sessions} canManage={canManageAccount} onAddAvailability={addAvailability} onRemoveAvailability={removeAvailability} onBook={bookSession} onStatus={updateSession}/>}
+        {active === "goals" && <GoalsPanel goals={goals} loading={workspaceLoading} canManage={canManageAccount && role === "Graduate"} mentorView={role === "Mentor"} onCreate={createGoal} onUpdate={updateGoal} onStatus={updateGoalStatus} onShare={updateGoalSharing} onLink={updateGoalLink}/>}
+        {active === "sessions" && <SessionsPanel role={role} userId={selectedAccountId} isDemoAccount={isDemoAccount} mentors={matchedMentors} slots={availability} sessions={sessions} canManage={canManageAccount} onAddAvailability={addAvailability} onRemoveAvailability={removeAvailability} onBook={bookSession} onStatus={updateSession} onOptOut={optOutMentee}/>}
         {active === "settings" && <PasswordChangePanel onNotice={(message, isError = false) => showNotice(message, isError ? "error" : "success")}/>}
         {active === "overview" && role === "Mentor" && <div className="space-y-5"><div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-blue-900 to-blue-700 p-7 text-white"><p className="text-xs font-bold uppercase tracking-[.18em] text-blue-200">Mentor workspace</p><h2 className="mt-3 text-2xl font-black">Share your experience, on your schedule.</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-blue-100">Set the times you can meet, review graduate requests, and keep your professional profile current.</p><button onClick={() => setActive("sessions")} className="mt-5 rounded-xl bg-white px-4 py-3 text-sm font-bold text-blue-900">Manage availability</button></div><div className="grid gap-4 sm:grid-cols-2"><StatCard item={{label:"Upcoming availability",value:String(availability.length),note:"Open times graduates can request"}} icon={CalendarClock}/><StatCard item={{label:"Session requests",value:String(sessions.filter((item) => item.status === "pending").length),note:"Waiting for your response"}} icon={Users}/></div><div className="glass rounded-2xl p-6"><h2 className="text-lg font-extrabold">Next sessions</h2>{sessions.length === 0 ? <p className="mt-2 text-sm text-slate-500">No session requests yet. Add an opening so graduates can book time with you.</p> : <div className="mt-3 space-y-2">{sessions.slice(0, 3).map((item) => <div key={item.id} className="flex flex-wrap justify-between gap-2 rounded-xl bg-white/70 px-4 py-3 text-sm"><span className="font-semibold">{item.mentee_name} · {new Date(item.scheduled_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</span><span className="font-bold capitalize text-blue-700">{item.status}</span></div>)}</div>}</div></div>}
       </section>

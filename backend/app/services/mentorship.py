@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, aliased, selectinload
 
-from app.models import GoalUpdate, MentorAvailability, MentorshipSession, MenteeGoal, User
+from app.models import GoalUpdate, MentorAvailability, MentorshipSession, MenteeGoal, MentorOptOut, User
 from app.schemas import (
     GoalCreate,
     GoalResponse,
@@ -25,6 +25,7 @@ def _goal_response(goal: MenteeGoal, mentee_name: str | None = None) -> GoalResp
         id=goal.id,
         mentee_id=goal.mentee_id,
         title=goal.title,
+        work_url=goal.work_url,
         description=goal.description,
         target_date=goal.target_date,
         status=goal.status,
@@ -74,11 +75,19 @@ def list_shared_goals(db: Session, mentor_id: UUID) -> list[GoalResponse]:
         )
         .exists()
     )
+    opted_out = (
+        select(MentorOptOut.id)
+        .where(
+            MentorOptOut.mentor_id == mentor_id,
+            MentorOptOut.mentee_id == MenteeGoal.mentee_id,
+        )
+        .exists()
+    )
     rows = db.execute(
         select(MenteeGoal, User.name)
         .join(User, User.id == MenteeGoal.mentee_id)
         .options(selectinload(MenteeGoal.updates))
-        .where(MenteeGoal.shared_with_mentor.is_(True), mentorship_exists)
+        .where(MenteeGoal.shared_with_mentor.is_(True), mentorship_exists, ~opted_out)
         .order_by(MenteeGoal.created_at.desc())
     ).all()
     return [_goal_response(goal, mentee_name) for goal, mentee_name in rows]
@@ -93,6 +102,7 @@ def create_goal(db: Session, mentee_id: UUID, data: GoalCreate) -> GoalResponse:
     goal = MenteeGoal(
         mentee_id=mentee_id,
         title=data.title,
+        work_url=data.work_url,
         description=data.description,
         target_date=data.target_date,
         shared_with_mentor=data.shared_with_mentor,
@@ -140,6 +150,8 @@ def update_goal_status(
         goal.status = data.status
     if data.shared_with_mentor is not None:
         goal.shared_with_mentor = data.shared_with_mentor
+    if data.work_url is not None:
+        goal.work_url = data.work_url
     db.commit()
     db.refresh(goal)
     return _goal_response(goal)
@@ -162,6 +174,14 @@ def create_session(
         raise HTTPException(status_code=404, detail="Mentor account not found")
     if mentor.id == mentee.id:
         raise HTTPException(status_code=400, detail="Choose a different mentor account")
+    opted_out = db.scalar(
+        select(MentorOptOut.id).where(
+            MentorOptOut.mentor_id == mentor.id,
+            MentorOptOut.mentee_id == mentee.id,
+        )
+    )
+    if opted_out is not None:
+        raise HTTPException(status_code=409, detail="This mentor is no longer available for your requests")
 
     requested_end = data.scheduled_at + timedelta(hours=1)
     availability = db.scalar(
@@ -289,7 +309,7 @@ def list_sessions(db: Session, user_id: UUID) -> list[SessionResponse]:
     mentor = aliased(User)
     mentee = aliased(User)
     rows = db.execute(
-        select(MentorshipSession, mentee.name, mentor.name)
+        select(MentorshipSession, mentee, mentor)
         .join(mentee, mentee.id == MentorshipSession.mentee_id)
         .join(mentor, mentor.id == MentorshipSession.mentor_id)
         .where(
@@ -300,20 +320,54 @@ def list_sessions(db: Session, user_id: UUID) -> list[SessionResponse]:
         )
         .order_by(MentorshipSession.scheduled_at.desc())
     ).all()
+    opted_out_pairs = {
+        tuple(row)
+        for row in db.execute(
+            select(MentorOptOut.mentor_id, MentorOptOut.mentee_id).where(
+                or_(MentorOptOut.mentor_id == user_id, MentorOptOut.mentee_id == user_id)
+            )
+        ).all()
+    }
     return [
         SessionResponse(
             id=session.id,
             mentee_id=session.mentee_id,
             mentor_id=session.mentor_id,
-            mentee_name=mentee_name,
-            mentor_name=mentor_name,
+            mentee_name=mentee.name,
+            mentor_name=mentor.name,
+            mentee_email=mentee.email if session.status in {"accepted", "completed"} and (session.mentor_id, session.mentee_id) not in opted_out_pairs else None,
+            mentee_phone_number=mentee.phone_number if session.status in {"accepted", "completed"} and (session.mentor_id, session.mentee_id) not in opted_out_pairs else None,
+            mentor_email=mentor.email if session.status in {"accepted", "completed"} and (session.mentor_id, session.mentee_id) not in opted_out_pairs else None,
+            mentor_phone_number=mentor.phone_number if session.status in {"accepted", "completed"} and (session.mentor_id, session.mentee_id) not in opted_out_pairs else None,
+            mentor_opted_out=(session.mentor_id, session.mentee_id) in opted_out_pairs,
             scheduled_at=session.scheduled_at,
             agenda=session.agenda,
             status=session.status,
             created_at=session.created_at,
         )
-        for session, mentee_name, mentor_name in rows
+        for session, mentee, mentor in rows
     ]
+
+
+def opt_out_mentee(db: Session, mentor_id: UUID, mentee_id: UUID) -> None:
+    """End this mentor/mentee pairing and prevent future requests or matches."""
+    # Use the same mentor-row lock as create_session so a new request cannot
+    # slip in while the opt-out transaction is being committed.
+    mentor = db.scalar(select(User).where(User.id == mentor_id).with_for_update())
+    mentee = db.get(User, mentee_id)
+    if mentor is None or mentor.role != "mentor" or mentee is None or mentee.role != "graduate":
+        raise HTTPException(status_code=404, detail="Mentorship participants not found")
+    existing = db.scalar(select(MentorOptOut).where(
+        MentorOptOut.mentor_id == mentor_id, MentorOptOut.mentee_id == mentee_id
+    ))
+    if existing is None:
+        db.add(MentorOptOut(mentor_id=mentor_id, mentee_id=mentee_id))
+    db.query(MentorshipSession).filter(
+        MentorshipSession.mentor_id == mentor_id,
+        MentorshipSession.mentee_id == mentee_id,
+        MentorshipSession.status.in_(["pending", "accepted"]),
+    ).update({MentorshipSession.status: "cancelled"}, synchronize_session=False)
+    db.commit()
 
 
 def update_session_status(

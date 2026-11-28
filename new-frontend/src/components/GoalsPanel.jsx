@@ -3,9 +3,11 @@ import { useState } from "react";
 const today = new Date();
 const todayLocal = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
-export default function GoalsPanel({ goals, loading, canManage, onCreate, onUpdate, onStatus, onShare, mentorView = false }) {
-  const [newGoal, setNewGoal] = useState({ title: "", description: "", target_date: "", shared_with_mentor: false });
+export default function GoalsPanel({ goals, loading, canManage, onCreate, onUpdate, onStatus, onShare, onLink, mentorView = false }) {
+  const [newGoal, setNewGoal] = useState({ title: "", work_url: "", description: "", target_date: "", shared_with_mentor: false });
   const [updates, setUpdates] = useState({});
+  const [linkDrafts, setLinkDrafts] = useState({});
+  const [editingLink, setEditingLink] = useState({});
 
   const updateForm = (goalId, field, value) => {
     setUpdates((current) => ({
@@ -21,7 +23,7 @@ export default function GoalsPanel({ goals, loading, canManage, onCreate, onUpda
       target_date: newGoal.target_date || null,
       shared_with_mentor: newGoal.shared_with_mentor
     });
-    if (saved) setNewGoal({ title: "", description: "", target_date: "", shared_with_mentor: false });
+    if (saved) setNewGoal({ title: "", work_url: "", description: "", target_date: "", shared_with_mentor: false });
   };
 
   const submitUpdate = async (event, goal) => {
@@ -35,12 +37,24 @@ export default function GoalsPanel({ goals, loading, canManage, onCreate, onUpda
     if (saved) setUpdates((current) => ({ ...current, [goal.id]: { note: "", progress_percent: "" } }));
   };
 
+  const submitLink = async (event, goal) => {
+    event.preventDefault();
+    const work_url = (linkDrafts[goal.id] ?? goal.work_url ?? "").trim();
+    if (!work_url) return;
+    const saved = await onLink(goal.id, { work_url });
+    if (saved) {
+      setLinkDrafts((current) => ({ ...current, [goal.id]: work_url }));
+      setEditingLink((current) => ({ ...current, [goal.id]: false }));
+    }
+  };
+
   return <section className="space-y-5">
     <div className="glass rounded-2xl p-6">
       <h2 className="text-lg font-extrabold text-slate-900">{mentorView ? "Goals shared by mentees" : "Your goals"}</h2>
       <p className="mt-1 text-sm text-slate-500">{mentorView ? "These graduates have shared their goals with you after an accepted mentorship session." : "Create milestones and keep a dated history of your progress."}</p>
       {canManage && <form onSubmit={submitGoal} className="mt-5 grid gap-3 sm:grid-cols-2">
         <label className="text-xs font-bold text-slate-600">Goal title<input required maxLength={180} value={newGoal.title} onChange={(event) => setNewGoal({ ...newGoal, title: event.target.value })} placeholder="Build a portfolio project" className="mt-2 w-full rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm font-medium" /></label>
+        <label className="text-xs font-bold text-slate-600">Work to review<input required type="url" maxLength={2048} value={newGoal.work_url} onChange={(event) => setNewGoal({ ...newGoal, work_url: event.target.value })} placeholder="https://github.com/you/project" className="mt-2 w-full rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm font-medium" /></label>
         <label className="text-xs font-bold text-slate-600">Target date<input type="date" min={todayLocal} value={newGoal.target_date} onChange={(event) => setNewGoal({ ...newGoal, target_date: event.target.value })} className="mt-2 w-full rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm font-medium" /></label>
         <label className="text-xs font-bold text-slate-600 sm:col-span-2">What will you do?<textarea maxLength={5000} rows={2} value={newGoal.description} onChange={(event) => setNewGoal({ ...newGoal, description: event.target.value })} className="mt-2 w-full rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm font-medium" /></label>
         <label className="flex items-center gap-2 text-sm text-slate-600 sm:col-span-2"><input type="checkbox" checked={newGoal.shared_with_mentor} onChange={(event) => setNewGoal({ ...newGoal, shared_with_mentor: event.target.checked })} className="h-4 w-4 accent-blue-700"/> Share with mentors I have an accepted or completed session with</label>
@@ -53,9 +67,10 @@ export default function GoalsPanel({ goals, loading, canManage, onCreate, onUpda
     {!loading && goals.length === 0 && <p className="rounded-xl bg-white/70 p-4 text-sm text-slate-500">{mentorView ? "No mentees have shared goals with you yet. Graduates can opt in to sharing after you have an accepted or completed session." : "No goals yet. Add a first milestone above to start tracking progress."}</p>}
     {goals.map((goal) => {
       const form = updates[goal.id] || { note: "", progress_percent: "" };
+      const workUrl = linkDrafts[goal.id] ?? goal.work_url ?? "";
       return <article key={goal.id} className="glass rounded-2xl p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div><h3 className="font-extrabold text-slate-900">{goal.title}</h3>{mentorView && <p className="mt-1 text-xs font-semibold text-blue-700">Shared by {goal.mentee_name}</p>}{goal.description && <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-600">{goal.description}</p>}</div>
+          <div><h3 className="font-extrabold text-slate-900">{goal.title}</h3>{mentorView && <p className="mt-1 text-xs font-semibold text-blue-700">Shared by {goal.mentee_name}</p>}{goal.description && <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-600">{goal.description}</p>}{workUrl && !editingLink[goal.id] && <div className="mt-3 flex flex-wrap items-center gap-2"><a href={workUrl} target="_blank" rel="noreferrer" className="inline-flex rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-800 hover:bg-blue-100">Review submitted work ↗</a>{canManage && <button type="button" onClick={() => { setLinkDrafts((current) => ({ ...current, [goal.id]: workUrl })); setEditingLink((current) => ({ ...current, [goal.id]: true })); }} className="rounded-lg px-2 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50">Edit link</button>}</div>}{canManage && (!workUrl || editingLink[goal.id]) && <form onSubmit={(event) => submitLink(event, goal)} className="mt-3 flex flex-col gap-2 sm:flex-row"><input required type="url" maxLength={2048} value={linkDrafts[goal.id] ?? goal.work_url ?? ""} onChange={(event) => setLinkDrafts((current) => ({ ...current, [goal.id]: event.target.value }))} placeholder="https://github.com/you/project" aria-label={`Work link for ${goal.title}`} className="min-w-0 flex-1 rounded-xl border border-blue-100 bg-white px-3 py-2.5 text-sm"/><button className="rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-xs font-bold text-blue-700">{workUrl ? "Save link" : "Add review link"}</button>{workUrl && <button type="button" onClick={() => setEditingLink((current) => ({ ...current, [goal.id]: false }))} className="rounded-xl px-3 py-2.5 text-xs font-bold text-slate-500">Cancel</button>}</form>}{mentorView && !workUrl && <p className="mt-3 text-xs text-slate-500">The mentee hasn’t added a review link yet.</p>}</div>
           <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold capitalize text-blue-700">{goal.status}</span>
         </div>
         <div className="mt-4 flex items-center justify-between text-xs font-semibold text-slate-500"><span>{goal.progress_percent}% complete</span><span>{goal.target_date ? `Target ${goal.target_date}` : "No target date"}</span></div>

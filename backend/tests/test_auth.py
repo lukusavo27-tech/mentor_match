@@ -61,6 +61,7 @@ class AuthenticationTests(unittest.TestCase):
         return RegisterRequest(
             name="New Graduate",
             email=email,
+            phone_number="+254 712 345 678",
             role="graduate",
             password="LongPassphrase123!",
             profile_text="Python and SQL skills",
@@ -86,6 +87,7 @@ class AuthenticationTests(unittest.TestCase):
         )
 
         self.assertEqual(current.id, registration.user.id)
+        self.assertEqual(current.phone_number, "+254 712 345 678")
         self.assertEqual(profile.career_goals, "Become a data engineer")
         self.assertEqual(logged_in.user.id, registration.user.id)
         self.assertNotEqual(stored_user.password_hash, "LongPassphrase123!")

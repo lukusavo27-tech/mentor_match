@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Search, ShieldCheck, Users, UserRound, Clock3 } from "lucide-react";
+import { Search, ShieldCheck, Users, UserRound, Clock3, UserCheck, UserX } from "lucide-react";
 import api from "../services/api";
 import Notice from "./Notice";
 import { getApiErrorMessage } from "../services/apiError";
@@ -124,6 +124,8 @@ export default function AdminPanel({ currentUserId }) {
 
   const stats = [
     ["Users", summary.total_users, Users],
+    ["Active", summary.active_users, UserCheck],
+    ["Suspended", summary.suspended_users, UserX],
     ["Graduates", summary.graduates, UserRound],
     ["Mentors", summary.mentors, ShieldCheck],
     ["Pending requests", summary.pending_sessions, Clock3]
@@ -133,11 +135,11 @@ export default function AdminPanel({ currentUserId }) {
   return <section className="space-y-5">
     <div>
       <h2 className="text-xl font-extrabold text-slate-900">Administration</h2>
-      <p className="mt-1 text-sm text-slate-500">Manage accounts and review basic platform activity.</p>
+      <p className="mt-1 text-sm text-slate-500">Review platform activity and manage graduate, mentor, and administrator accounts.</p>
     </div>
     {notice && <Notice message={notice} kind="success" onDismiss={() => setNotice("")}/>}
     {error && <Notice message={error} kind="error" onDismiss={() => setError("")}/>}
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
       {stats.map(([label, value, Icon]) => <article key={label} className="glass rounded-2xl p-4">
         <div className="flex items-center justify-between text-sm font-semibold text-slate-500">
           {label}<Icon size={18} className="text-blue-700"/>
@@ -158,7 +160,7 @@ export default function AdminPanel({ currentUserId }) {
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
         <select value={role} onChange={(event) => { setRole(event.target.value); setOffset(0); }} aria-label="Filter by account type" className="rounded-lg border border-blue-100 bg-white px-3 py-2 text-sm">
-          <option value="">All account types</option><option value="graduate">Graduate</option><option value="mentor">Mentor</option>
+          <option value="">All account types</option><option value="graduate">Graduate</option><option value="mentor">Mentor</option><option value="admin">Administrator</option>
         </select>
         <select value={status} onChange={(event) => { setStatus(event.target.value); setOffset(0); }} aria-label="Filter by account status" className="rounded-lg border border-blue-100 bg-white px-3 py-2 text-sm">
           <option value="">All statuses</option><option value="active">Active</option><option value="suspended">Suspended</option>

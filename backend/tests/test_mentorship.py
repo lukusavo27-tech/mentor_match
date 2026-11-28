@@ -28,6 +28,7 @@ from app.services.mentorship import (
     list_sessions,
     update_goal_status,
     update_session_status,
+    opt_out_mentee,
 )
 
 
@@ -85,6 +86,7 @@ class MentorshipFeatureTests(unittest.TestCase):
             self.mentee.id,
             GoalCreate(
                 title="Build an API portfolio",
+                work_url="https://github.com/mentee/api-portfolio",
                 description="Publish two backend projects",
                 target_date=(datetime.now(timezone.utc) + timedelta(days=30)).date(),
             ),
@@ -97,6 +99,7 @@ class MentorshipFeatureTests(unittest.TestCase):
         )
 
         self.assertEqual(updated.progress_percent, 45)
+        self.assertEqual(updated.work_url, "https://github.com/mentee/api-portfolio")
         self.assertEqual(len(updated.updates), 1)
         self.assertEqual(updated.updates[0].note, "First project is in progress")
 
@@ -119,7 +122,14 @@ class MentorshipFeatureTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 409)
 
     def test_goal_status_can_be_paused_and_resumed(self) -> None:
-        goal = create_goal(self.db, self.mentee.id, GoalCreate(title="Learn SQL"))
+        goal = create_goal(self.db, self.mentee.id, GoalCreate(title="Learn SQL", work_url="https://github.com/mentee/sql"))
+        linked = update_goal_status(
+            self.db,
+            self.mentee.id,
+            goal.id,
+            GoalStatusUpdate(work_url="https://github.com/mentee/legacy-work"),
+        )
+        self.assertEqual(linked.work_url, "https://github.com/mentee/legacy-work")
         paused = update_goal_status(
             self.db,
             self.mentee.id,
@@ -139,7 +149,7 @@ class MentorshipFeatureTests(unittest.TestCase):
         goal = create_goal(
             self.db,
             self.mentee.id,
-            GoalCreate(title="Prepare a portfolio", shared_with_mentor=True),
+            GoalCreate(title="Prepare a portfolio", work_url="https://github.com/mentee/portfolio", shared_with_mentor=True),
         )
         self.assertEqual(list_shared_goals(self.db, self.mentor.id), [])
 
@@ -168,7 +178,7 @@ class MentorshipFeatureTests(unittest.TestCase):
 
     def test_only_graduates_can_create_goals(self) -> None:
         with self.assertRaises(HTTPException) as raised:
-            create_goal(self.db, self.mentor.id, GoalCreate(title="Mentor goal"))
+            create_goal(self.db, self.mentor.id, GoalCreate(title="Mentor goal", work_url="https://example.test/work"))
         self.assertEqual(raised.exception.status_code, 400)
 
     def test_session_request_and_participant_status_transitions(self) -> None:
@@ -228,6 +238,71 @@ class MentorshipFeatureTests(unittest.TestCase):
         )
         self.assertEqual(accepted.status, "accepted")
         self.assertEqual(completed.status, "completed")
+
+    def test_accepted_session_shares_contacts_and_mentor_can_opt_out(self) -> None:
+        starts_at = datetime.now(timezone.utc) + timedelta(days=6)
+        self.add_opening(starts_at)
+        shared_goal = create_goal(
+            self.db,
+            self.mentee.id,
+            GoalCreate(
+                title="Shared work",
+                work_url="https://github.com/mentee/work",
+                shared_with_mentor=True,
+            ),
+        )
+        request = create_session(
+            self.db,
+            self.mentee.id,
+            SessionCreate(mentor_id=self.mentor.id, scheduled_at=starts_at),
+        )
+        pending = list_sessions(self.db, self.mentor.id)[0]
+        self.assertIsNone(pending.mentee_email)
+        self.assertIsNone(pending.mentee_phone_number)
+        self.assertFalse(pending.mentor_opted_out)
+
+        accepted = update_session_status(
+            self.db, request.id, self.mentor.id, SessionStatusUpdate(status="accepted")
+        )
+        self.assertEqual(accepted.mentee_email, self.mentee.email)
+        self.assertEqual(accepted.mentor_email, self.mentor.email)
+        self.assertEqual([goal.id for goal in list_shared_goals(self.db, self.mentor.id)], [shared_goal.id])
+
+        opt_out_mentee(self.db, self.mentor.id, self.mentee.id)
+        opted_out_session = list_sessions(self.db, self.mentor.id)[0]
+        self.assertEqual(opted_out_session.status, "cancelled")
+        self.assertIsNone(opted_out_session.mentee_email)
+        self.assertTrue(opted_out_session.mentor_opted_out)
+        self.assertEqual(list_shared_goals(self.db, self.mentor.id), [])
+        with self.assertRaises(HTTPException) as opted_out:
+            create_session(
+                self.db,
+                self.mentee.id,
+                SessionCreate(mentor_id=self.mentor.id, scheduled_at=starts_at),
+            )
+        self.assertEqual(opted_out.exception.status_code, 409)
+
+    def test_opt_out_state_is_returned_for_completed_sessions(self) -> None:
+        starts_at = datetime.now(timezone.utc) + timedelta(days=7)
+        self.add_opening(starts_at)
+        request = create_session(
+            self.db,
+            self.mentee.id,
+            SessionCreate(mentor_id=self.mentor.id, scheduled_at=starts_at),
+        )
+        update_session_status(
+            self.db, request.id, self.mentor.id, SessionStatusUpdate(status="accepted")
+        )
+        update_session_status(
+            self.db, request.id, self.mentor.id, SessionStatusUpdate(status="completed")
+        )
+
+        opt_out_mentee(self.db, self.mentor.id, self.mentee.id)
+        session = list_sessions(self.db, self.mentee.id)[0]
+
+        self.assertEqual(session.status, "completed")
+        self.assertTrue(session.mentor_opted_out)
+        self.assertIsNone(session.mentor_email)
 
     def test_session_requires_an_opening_and_prevents_double_booking(self) -> None:
         starts_at = datetime.now(timezone.utc) + timedelta(days=3)
@@ -314,7 +389,7 @@ class MentorshipFeatureTests(unittest.TestCase):
 
     def test_goal_target_date_cannot_be_in_the_past(self) -> None:
         with self.assertRaises(ValueError):
-            GoalCreate(title="Past deadline", target_date=datetime.now(timezone.utc).date() - timedelta(days=1))
+            GoalCreate(title="Past deadline", work_url="https://example.test/work", target_date=datetime.now(timezone.utc).date() - timedelta(days=1))
 
 
 if __name__ == "__main__":

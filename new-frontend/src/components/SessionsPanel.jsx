@@ -4,7 +4,7 @@ import api from "../services/api";
 
 const dateTime = (value) => new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 
-export default function SessionsPanel({ role, userId, isDemoAccount = false, mentors = [], slots = [], sessions = [], onAddAvailability, onRemoveAvailability, onBook, onStatus, canManage }) {
+export default function SessionsPanel({ role, userId, isDemoAccount = false, mentors = [], slots = [], sessions = [], onAddAvailability, onRemoveAvailability, onBook, onStatus, onOptOut, canManage }) {
   const [window, setWindow] = useState({ starts_at: "", ends_at: "" });
   const [mentorId, setMentorId] = useState(mentors[0]?.id || "");
   const [mentorSlots, setMentorSlots] = useState([]);
@@ -58,6 +58,14 @@ export default function SessionsPanel({ role, userId, isDemoAccount = false, men
       setUpdatingSessionId("");
     }
   };
+  const optOut = async (session) => {
+    setUpdatingSessionId(session.id);
+    try {
+      await onOptOut(session);
+    } finally {
+      setUpdatingSessionId("");
+    }
+  };
 
   return <section className="space-y-5">
     {role === "Mentor" ? <div className="glass rounded-2xl p-6">
@@ -97,7 +105,10 @@ export default function SessionsPanel({ role, userId, isDemoAccount = false, men
         return <article key={session.id} className="rounded-xl border border-blue-100 bg-white/75 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-bold text-slate-800">{isMentor ? session.mentee_name : session.mentor_name}</p><p className="mt-1 text-sm text-slate-500">{dateTime(session.scheduled_at)} · 1 hour</p>{session.agenda && <p className="mt-2 text-sm text-slate-600">{session.agenda}</p>}</div><span className={`rounded-full px-3 py-1 text-xs font-bold ${session.status === "accepted" ? "bg-emerald-100 text-emerald-800" : "bg-blue-50 text-blue-700"}`}>{statusLabel}</span></div>
           {session.status === "accepted" && <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-900">This session is confirmed. Please coordinate the meeting link or location separately; MentorMatch does not send calendar invitations.</p>}
+          {session.mentor_opted_out && <p role="status" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">{isMentor ? "You opted out of this mentee. Future requests and goal sharing are disabled." : "This mentor opted out of the mentorship. Future requests and goal sharing are disabled."}</p>}
+          {["accepted", "completed"].includes(session.status) && (session.mentor_email || session.mentor_phone_number) && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3"><p className="text-xs font-bold text-emerald-900">You can now contact {isMentor ? session.mentee_name : session.mentor_name}</p><div className="mt-2 flex flex-wrap gap-2">{(isMentor ? session.mentee_email : session.mentor_email) && <a href={`mailto:${isMentor ? session.mentee_email : session.mentor_email}`} className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-blue-800">Email</a>}{(isMentor ? session.mentee_phone_number : session.mentor_phone_number) && <a target="_blank" rel="noreferrer" href={`https://wa.me/${(isMentor ? session.mentee_phone_number : session.mentor_phone_number).replace(/\D/g, "")}`} className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-emerald-800">WhatsApp</a>}</div></div>}
           {(canRespond || canCancel) && <div className="mt-4 flex gap-2">{canRespond && <><button disabled={updating} onClick={() => updateSessionStatus(session.id, "accepted")} className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{updating ? "Saving…" : "Accept"}</button><button disabled={updating} onClick={() => updateSessionStatus(session.id, "declined")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 disabled:opacity-50">Decline</button></>}{canCancel && <button disabled={updating} onClick={() => updateSessionStatus(session.id, "cancelled")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 disabled:opacity-50">Cancel session</button>}</div>}
+          {isMentor && !session.mentor_opted_out && ["accepted", "completed"].includes(session.status) && <button disabled={updating} onClick={() => optOut(session)} className="mt-3 rounded-lg border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700 disabled:opacity-50">{updating ? "Saving…" : "Opt out of this mentee"}</button>}
           {isMentor && session.status === "accepted" && <button disabled={updating} onClick={() => updateSessionStatus(session.id, "completed")} className="mt-3 rounded-lg border border-blue-200 px-3 py-2 text-xs font-bold text-blue-700 disabled:opacity-50">{updating ? "Saving…" : "Mark completed"}</button>}
         </article>;
       })}</div>

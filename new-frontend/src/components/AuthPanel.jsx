@@ -29,6 +29,7 @@ export default function AuthPanel({ onAuthenticated, adminRoute = false }) {
   const [mode, setMode] = useState(() => location.pathname === "/register" ? "register" : "login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState(() => new URLSearchParams(location.search).get("role") === "mentor" ? "mentor" : "graduate");
   const [demoAccountId, setDemoAccountId] = useState("");
@@ -45,7 +46,7 @@ export default function AuthPanel({ onAuthenticated, adminRoute = false }) {
     try {
       const response = mode === "login"
         ? await api.post("/auth/login", { email, password }, { timeout: 60000 })
-        : await api.post("/auth/register", { name, email, password, role }, { timeout: 60000 });
+        : await api.post("/auth/register", { name, email, phone_number: phoneNumber, password, role }, { timeout: 60000 });
       onAuthenticated(response.data);
     } catch (error) {
       setNotice(describeAuthError(error));
@@ -92,6 +93,10 @@ export default function AuthPanel({ onAuthenticated, adminRoute = false }) {
         {mode === "register" && <>
           <label className="block text-xs font-bold text-slate-600">Full name
             <input required minLength={1} maxLength={120} value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" disabled={submitting} className="mt-2 w-full rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm font-medium text-slate-800 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 disabled:opacity-60" />
+          </label>
+          <label className="block text-xs font-bold text-slate-600">WhatsApp phone number
+            <input required type="tel" minLength={7} maxLength={32} pattern="\+[1-9][0-9 ()-]{6,29}" placeholder="+254 712 345 678" value={phoneNumber} onChange={(event) => setPhoneNumber(event.target.value)} autoComplete="tel" disabled={submitting} className="mt-2 w-full rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm font-medium text-slate-800 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 disabled:opacity-60" />
+            <span className="mt-1 block font-normal text-slate-500">Include your country code. Shared with the other participant after a session is accepted.</span>
           </label>
           <label className="block text-xs font-bold text-slate-600">I am a
             <select value={role} onChange={(event) => setRole(event.target.value)} disabled={submitting} className="mt-2 w-full rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm font-medium text-slate-800 disabled:opacity-60">

@@ -1,5 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
+import re
 from typing import Literal
+from urllib.parse import urlparse
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -16,6 +18,7 @@ class UserCreate(BaseModel):
 
     name: str = Field(min_length=1, max_length=120)
     email: str = Field(min_length=3, max_length=255)
+    phone_number: str = Field(default="", max_length=32)
     role: Literal["graduate", "mentor"]
     profile_text: str = Field(default="", max_length=20_000)
     career_goals: str = Field(default="", max_length=5_000)
@@ -23,6 +26,15 @@ class UserCreate(BaseModel):
 
 class RegisterRequest(UserCreate):
     password: str = Field(min_length=10, max_length=128)
+    phone_number: str = Field(min_length=7, max_length=32)
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone_number(cls, value: str) -> str:
+        digits = re.sub(r"\D", "", value)
+        if not re.fullmatch(r"\+[1-9][0-9 ()-]{6,29}", value) or not 8 <= len(digits) <= 15:
+            raise ValueError("Enter a valid international phone number beginning with + and country code")
+        return value
 
 
 class LoginRequest(BaseModel):
@@ -38,18 +50,29 @@ class PasswordChangeRequest(BaseModel):
 class ProfileUpdate(BaseModel):
     profile_text: str | None = Field(default=None, max_length=20_000)
     career_goals: str | None = Field(default=None, max_length=5_000)
+    phone_number: str | None = Field(default=None, min_length=7, max_length=32)
 
     @model_validator(mode="after")
     def require_a_field(self):
-        if self.profile_text is None and self.career_goals is None:
-            raise ValueError("Provide profile_text, career_goals, or both")
+        if self.profile_text is None and self.career_goals is None and self.phone_number is None:
+            raise ValueError("Provide profile_text, career_goals, phone_number, or a combination")
         return self
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone_number(cls, value: str | None) -> str | None:
+        if value is not None:
+            digits = re.sub(r"\D", "", value)
+            if not re.fullmatch(r"\+[1-9][0-9 ()-]{6,29}", value) or not 8 <= len(digits) <= 15:
+                raise ValueError("Enter a valid international phone number beginning with + and country code")
+        return value
 
 
 class UserResponse(BaseModel):
     id: UUID
     name: str
     email: str
+    phone_number: str = ""
     role: Literal["graduate", "mentor"]
     profile_text: str
     career_goals: str
@@ -98,9 +121,18 @@ class GoalCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     title: str = Field(min_length=1, max_length=180)
+    work_url: str = Field(min_length=8, max_length=2048)
     description: str = Field(default="", max_length=5_000)
     target_date: date | None = None
     shared_with_mentor: bool = False
+
+    @field_validator("work_url")
+    @classmethod
+    def require_http_work_link(cls, value: str) -> str:
+        parsed = urlparse(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("work_url must be a valid http or https URL")
+        return value
 
     @field_validator("target_date")
     @classmethod
@@ -120,12 +152,22 @@ class GoalUpdateCreate(BaseModel):
 class GoalStatusUpdate(BaseModel):
     status: Literal["active", "paused", "completed"] | None = None
     shared_with_mentor: bool | None = None
+    work_url: str | None = Field(default=None, min_length=8, max_length=2048)
 
     @model_validator(mode="after")
     def require_an_update(self):
-        if self.status is None and self.shared_with_mentor is None:
-            raise ValueError("Provide status or shared_with_mentor")
+        if self.status is None and self.shared_with_mentor is None and self.work_url is None:
+            raise ValueError("Provide status, shared_with_mentor, work_url, or a combination")
         return self
+
+    @field_validator("work_url")
+    @classmethod
+    def validate_work_link(cls, value: str | None) -> str | None:
+        if value is not None:
+            parsed = urlparse(value)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                raise ValueError("work_url must be a valid http or https URL")
+        return value
 
 
 class GoalUpdateResponse(BaseModel):
@@ -140,6 +182,7 @@ class GoalResponse(BaseModel):
     id: UUID
     mentee_id: UUID
     title: str
+    work_url: str = ""
     description: str
     target_date: date | None
     status: Literal["active", "paused", "completed"]
@@ -177,6 +220,11 @@ class SessionResponse(BaseModel):
     mentor_id: UUID
     mentee_name: str
     mentor_name: str
+    mentee_email: str | None = None
+    mentee_phone_number: str | None = None
+    mentor_email: str | None = None
+    mentor_phone_number: str | None = None
+    mentor_opted_out: bool = False
     scheduled_at: datetime
     agenda: str
     status: Literal["pending", "accepted", "declined", "cancelled", "completed"]

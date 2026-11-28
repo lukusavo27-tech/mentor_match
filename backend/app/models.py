@@ -31,6 +31,9 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    phone_number: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="", server_default=text("''")
+    )
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_admin: Mapped[bool] = mapped_column(
@@ -144,6 +147,7 @@ class MenteeGoal(Base):
         cascade="all, delete-orphan",
         order_by="GoalUpdate.created_at.desc()",
     )
+    work_url: Mapped[str] = mapped_column(String(2048), nullable=False, default="", server_default=text("''"))
 
 
 class GoalUpdate(Base):
@@ -184,6 +188,16 @@ class MentorshipSession(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class MentorOptOut(Base):
+    __tablename__ = "mentor_opt_outs"
+    __table_args__ = (UniqueConstraint("mentor_id", "mentee_id", name="uq_mentor_opt_out_pair"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    mentor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    mentee_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class MentorAvailability(Base):

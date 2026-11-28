@@ -1,72 +1,105 @@
 # MentorMatch Frontend
 
-React, Vite, and Tailwind CSS frontend for the MentorMatch backend. It keeps the
-existing MentorMatch dashboard theme and connects the screens to FastAPI.
+React, Vite, and Tailwind CSS frontend for the MentorMatch API.
 
 ## Run locally
 
-Start PostgreSQL and the backend first. From the backend directory:
+Start the backend from the `backend` directory:
 
 ```bash
-source venv/bin/activate
-uvicorn app.main:app --reload
+./run_local.sh
 ```
 
-In a second terminal, from `new-frontend`:
+`run_local.sh` uses the local SQLite database `mentor_match_local.db`, applies
+pending Alembic migrations, and starts FastAPI on `http://localhost:8000`. It
+seeds demo accounts only when that database is first created. Existing local
+data is kept. To deliberately seed demo data again, use `./run_local.sh --seed`;
+this resets the shared demo-account passwords and adds any missing demo records.
+To provision a local administrator, use `./run_local.sh --bootstrap-admin` and
+follow its prompts.
+
+In a second terminal, start the frontend:
 
 ```bash
-npm install
-cp .env.example .env
+cd ../new-frontend
+npm install  # first run only
 npm run dev
 ```
 
-Open <http://localhost:5173>. Vite proxies `/auth`, `/users`, the `/admin/*` API
-endpoints, and `/health` to FastAPI at `http://localhost:8000`. The `/admin`
-page itself is served by React. Keep `VITE_API_BASE_URL` empty for local
-development. The backend has no `/api` route prefix. Restart Vite after changing
-`.env` because Vite reads it at startup.
+Open <http://localhost:5173>. Vite proxies API requests to the backend on port
+8000. No frontend `.env` file is needed for local development.
 
-## Sign in and use the dashboard
+## Main project flow
 
-The sign-in screen lets you select a seeded demo account or register a new
-account. Seeded demo accounts use the local-only password
-`MentorMatchDemo2026!`. After sign-in, the dashboard stays on that account;
-signing out returns to the login screen.
+```mermaid
+flowchart TD
+    A[Register as mentee or mentor] --> B[Add international phone number]
+    B --> C[Complete profile and find mentors]
+    C --> D[Mentee adds a goal and work link]
+    D --> E[Mentee opts into goal sharing]
+    C --> F[Mentee requests an available session]
+    F --> G[Pending request: contacts stay private]
+    G -->|Mentor accepts| H[Email and WhatsApp contacts become available]
+    H --> I[Mentor reviews shared goals and work links]
+    H -->|Mentor opts out| J[Active sessions end; sharing and future requests stop]
+    J --> K[Mentor is excluded from future recommendations]
+```
 
-The dashboard supports profile editing, separate PDF/DOCX resume text, live mentor
-recommendations, goal progress history, opt-in goal sharing with a mentor after
-an accepted or completed session, session requests and responses, and password
-changes. Administrators can search accounts, suspend/reactivate accounts, and
-permanently delete an account and related records. Admin provisioning is done
-from the backend and is not available through public registration. A graduate
-can request a session from a
-mentor card or from the Sessions page. Mentors can accept or decline requests.
-The dedicated `/admin` route verifies the signed-in account with the backend;
-the route and admin navigation are not shown to ordinary accounts.
+Goal sharing is a separate mentee choice. Only opted-in goals are visible to a
+mentor after an accepted or completed session. Mentees can add or change links on
+existing goals from the Goals screen. Opt-out is a one-way action in the current
+flow; it cancels active sessions and disables future requests for that pair.
 
-Build and preview:
+## Local feature test
+
+Use fresh registered accounts for the contact flow. Seeded demo accounts have no
+real phone numbers; use them for profile matching, availability, and admin
+navigation instead.
+
+1. Register one mentee and one mentor with international phone numbers beginning
+   with `+` (for example, `+254 712 345 678`).
+2. Sign in as the mentor, complete the profile, and publish a one-hour opening.
+3. Sign in as the mentee, add a goal with a work link, and opt into sharing it.
+   Existing goals with no link can be updated from the same screen.
+4. Request the mentor's opening. Confirm the pending session has no contact
+   actions, then accept it from the mentor account.
+5. Confirm both session participants can use the email and WhatsApp actions and
+   the mentor can open the shared work link.
+6. Opt out from the mentor account. Confirm the session shows the opt-out state,
+   contact actions and shared goals disappear, and another request is rejected.
+7. For admin checks, provision a local admin with `--bootstrap-admin`, then try
+   account search, role/status filters, suspension, and reactivation.
+
+Existing accounts created before phone capture was added should enter their
+number in **My profile** before testing WhatsApp contact. Migrated goals without
+links can be updated from the mentee's Goals screen.
+
+Run the backend's automated test suite from `backend`:
+
+```bash
+./.venv/bin/python -m unittest discover -s tests
+```
+
+Run `npm run build` from `new-frontend` to verify the production bundle.
+
+The local demo password is `MentorMatchDemo2026!`. It is only for seeded local
+accounts; do not use it for real accounts.
+
+## Build
 
 ```bash
 npm run build
 npm run preview
 ```
 
-## Current limitations
+## Production setup notes
 
-- This frontend is for local evaluation. Do not use the shared demo password
-  for real accounts.
-- Demo profile fields are read-only. Use a registered account to save profile
-  changes, upload a resume, or change that account's password.
-- Recommendations come from the backend's small rule-based career vocabulary
-  and TF-IDF ranking. Scores are ranking aids, not probabilities or guarantees.
-- Session requests use mentor-published one-hour openings, and pending or
-  accepted requests block overlapping times. The backend does not send calendar
-  invites or reminders.
-- Resume upload extracts text from PDF and DOCX files up to 10 MB. Image-only
-  PDFs need OCR, which is not included.
-- Local API proxying is configured. A separately hosted frontend needs an API
-  URL, HTTPS, and backend CORS configuration; those deployment settings are not
-  included here.
+Do not use `run_local.sh` or `--seed` for production. Configure the backend
+database URL, signing secret, and allowed frontend origin; apply reviewed
+migrations and provision an administrator deliberately. A separately hosted
+frontend needs `VITE_API_BASE_URL` set to the API origin and matching backend CORS
+configuration. Back up and rehearse database restoration before production
+migrations.
 
-See [`../backend/backend.md`](../backend/backend.md) for backend routes, database
-setup, PostgreSQL inspection, and backend limitations.
+See [`../backend/backend.md`](../backend/backend.md) for API details, database
+migrations, and the guarded workflow for adopting older unversioned databases.

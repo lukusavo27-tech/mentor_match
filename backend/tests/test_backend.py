@@ -13,7 +13,7 @@ from app.main import (
     recommend_mentors,
     update_profile,
 )
-from app.models import Profile, ProfileSkill, Recommendation, User
+from app.models import MentorOptOut, Profile, ProfileSkill, Recommendation, User
 from app.schemas import ProfileUpdate, UserCreate
 from app.services.recommendation_service import get_recommendations
 
@@ -200,6 +200,32 @@ class BackendHandlerTests(unittest.TestCase):
         ).all()
         self.assertEqual(len(persisted), 2)
         self.assertEqual(persisted[0].rank, 1)
+
+    def test_opted_out_mentor_is_removed_from_recommendations(self) -> None:
+        graduate = self.add_user(
+            "Opt-out Graduate",
+            "optout-graduate@example.test",
+            "graduate",
+            "Python API developer seeking a backend mentor.",
+        )
+        opted_out_mentor = self.add_user(
+            "Opted-out Mentor",
+            "optout-mentor@example.test",
+            "mentor",
+            "Backend engineer with Python API experience.",
+        )
+        other_mentor = self.add_user(
+            "Available Mentor",
+            "available-mentor@example.test",
+            "mentor",
+            "Backend engineer with Python API experience.",
+        )
+        self.db.add(MentorOptOut(mentor_id=opted_out_mentor.id, mentee_id=graduate.id))
+        self.db.commit()
+
+        results = recommend_mentors(graduate.id, self.db)
+
+        self.assertEqual([item["mentor_id"] for item in results], [other_mentor.id])
 
     def test_profile_skills_are_persisted_and_refreshed(self) -> None:
         graduate = self.add_user(

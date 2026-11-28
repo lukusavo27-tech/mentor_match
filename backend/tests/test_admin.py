@@ -97,6 +97,14 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(summary.graduates, 1)
         self.assertEqual([user.email for user in results], ["graduate@example.test"])
         self.assertFalse(hasattr(results[0], "profile_text"))
+        administrators = admin_list_users_endpoint(
+            role="admin", db=self.db, current_user=self.admin
+        )
+        self.assertEqual([user.email for user in administrators], [self.admin.email])
+        phone_results = admin_list_users_endpoint(
+            search="graduate@example", db=self.db, current_user=self.admin
+        )
+        self.assertEqual([user.email for user in phone_results], ["graduate@example.test"])
 
     def test_admin_can_suspend_and_reactivate_user_and_tokens_stop_working(self) -> None:
         token = create_access_token(self.graduate.id)

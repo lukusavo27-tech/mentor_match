@@ -20,11 +20,12 @@ profiles and evaluate them; adding aliases improves vocabulary coverage but
 does not teach the model new entity types.
 
 This is a local prototype. It supports password sign-in, profile matching,
-PDF/DOCX text extraction, mentee goal tracking, mentorship session requests,
-and basic administrator account management. Session requests check published
-mentor availability and prevent overlapping pending or accepted sessions. It
-does not verify email addresses or rate-limit sign-in. Keep it on a trusted
-development network while using demo accounts.
+PDF/DOCX text extraction, mentee goal tracking with work-review links,
+mentorship session requests with accepted-session contact sharing, mentor
+opt-out, and administrator account management. Session requests check
+published mentor availability and prevent overlapping pending or accepted
+sessions. It does not verify email addresses or rate-limit sign-in. Keep it on
+a trusted development network while using demo accounts.
 
 ## Run it locally
 
@@ -339,7 +340,8 @@ an empty list. Profiles with no usable text receive a score of `0.0`.
 ### Read or update a profile
 
 - `GET /users/{user_id}` returns a user's role and profile text.
-- `PUT /users/{user_id}/profile` updates profile text, career goals, or both.
+- `PUT /users/{user_id}/profile` updates profile text, career goals, phone number,
+  or a combination of those fields.
   Example body:
 
 ```json
@@ -357,16 +359,18 @@ also create and track separate milestones. Goal progress updates are saved as
 history, and setting progress to 100% completes the goal automatically.
 
 - `GET /users/{user_id}/goals` lists the graduate's goals and update history.
-- `POST /users/{user_id}/goals` creates a goal with a title and optional
-  description and target date.
+- `POST /users/{user_id}/goals` creates a goal with a title, required valid
+  `http` or `https` `work_url`, and optional description and target date.
 - `POST /users/{user_id}/goals/{goal_id}/updates` records a note and progress
   percentage from 0 to 100.
-- `PATCH /users/{user_id}/goals/{goal_id}` pauses, resumes, or completes a goal.
+- `PATCH /users/{user_id}/goals/{goal_id}` pauses, resumes, or completes a goal,
+  toggles sharing, or adds/changes the work-review URL on an existing goal.
 - Graduates can opt a goal into mentor sharing when creating or updating it.
 - `GET /users/{mentor_id}/shared-goals` lists opted-in goals only for the signed-in
   mentor's graduates with an accepted or completed mentorship session.
 
-Only the signed-in graduate can write their own goals. Existing databases
+Only the signed-in graduate can write their own goals. Mentors can open shared
+work links from their shared-goals view. Existing databases
 require baseline adoption before running later schema migrations; the
 `legacy_baseline` already includes the goal-sharing flag.
 Sharing can be turned off at any time. Pending, declined, or cancelled sessions do not grant goal access.
@@ -378,13 +382,18 @@ Graduates can request a session with a mentor by supplying a future,
 timezone-aware date and time and an optional agenda. Session status starts as
 `pending`. Mentors can accept or decline; either participant can cancel a pending
 or accepted session; the mentor can mark an accepted session completed. Both
-participants can list their sessions.
+participants can list their sessions. Registration requires an international
+phone number beginning with `+`. Email and phone contacts are returned to session
+participants only after a session is accepted or completed.
 
 - `GET /users/{user_id}/sessions` lists sessions for that account.
 - `POST /users/{user_id}/sessions` requests a session with `mentor_id`,
   `scheduled_at`, and optional `agenda`.
 - `PATCH /sessions/{session_id}` changes `status` to `accepted`, `declined`,
   `cancelled`, or `completed`, subject to the transition rules above.
+- `POST /sessions/{session_id}/opt-out` lets the mentor end an accepted
+  mentorship. It cancels pending/accepted sessions for the pair and excludes
+  that mentor from future recommendations and booking requests.
 
 Mentors can create one-hour future availability openings. Graduates can request
 only those openings; pending and accepted sessions block overlapping requests.

@@ -15,6 +15,7 @@ from app.models import (
     MenteeGoal,
     MentorAvailability,
     MentorshipSession,
+    MentorOptOut,
     Profile,
     ProfileSkill,
     Recommendation,
@@ -61,6 +62,7 @@ from app.services.mentorship import (
     list_sessions,
     update_goal_status,
     update_session_status,
+    opt_out_mentee,
 )
 from app.services.recommendation_service import (
     get_recommendations,
@@ -105,6 +107,7 @@ def _user_response(user: User) -> UserResponse:
         id=user.id,
         name=user.name,
         email=user.email,
+        phone_number=user.phone_number,
         role=user.role,
         profile_text=user.profile.profile_text if user.profile else "",
         career_goals=user.profile.career_goals if user.profile else "",
@@ -147,6 +150,7 @@ def register_account(
                 detail="Demo accounts use the shared demo password and cannot be claimed",
             )
         user.password_hash = hash_password(account_data.password)
+        user.phone_number = account_data.phone_number
         db.commit()
         db.refresh(user)
         if user.profile is not None:
@@ -168,6 +172,7 @@ def register_account(
     user = User(
         name=account_data.name,
         email=normalized_email,
+        phone_number=account_data.phone_number,
         role=account_data.role,
         password_hash=hash_password(account_data.password),
         profile=Profile(
@@ -365,16 +370,18 @@ def admin_list_users_endpoint(
         raise HTTPException(
             status_code=422, detail="Invalid search or pagination values"
         )
-    if role is not None and role not in {"graduate", "mentor"}:
-        raise HTTPException(status_code=422, detail="Role must be graduate or mentor")
+    if role is not None and role not in {"graduate", "mentor", "admin"}:
+        raise HTTPException(status_code=422, detail="Role must be graduate, mentor, or admin")
 
     query = select(User)
     if search:
         pattern = f"%{search}%"
         query = query.where(
-            or_(User.name.ilike(pattern), User.email.ilike(pattern))
+            or_(User.name.ilike(pattern), User.email.ilike(pattern), User.phone_number.ilike(pattern))
         )
-    if role is not None:
+    if role == "admin":
+        query = query.where(User.is_admin.is_(True))
+    elif role is not None:
         query = query.where(User.role == role)
     if is_active is not None:
         query = query.where(User.is_active.is_(is_active))
@@ -441,6 +448,9 @@ def admin_delete_user_endpoint(
             )
         )
     )
+    db.execute(delete(MentorOptOut).where(
+        or_(MentorOptOut.mentee_id == user_id, MentorOptOut.mentor_id == user_id)
+    ))
     db.execute(delete(MentorAvailability).where(MentorAvailability.mentor_id == user_id))
     goal_ids = select(MenteeGoal.id).where(MenteeGoal.mentee_id == user_id)
     db.execute(delete(GoalUpdate).where(GoalUpdate.goal_id.in_(goal_ids)))
@@ -458,6 +468,7 @@ def create_user(user_data: UserCreate, db: Session = Depends(get_db)) -> UserRes
         name=user_data.name,
         email=user_data.email.lower(),
         role=user_data.role,
+        phone_number=user_data.phone_number,
         profile=Profile(
             profile_text=user_data.profile_text,
             career_goals=user_data.career_goals,
@@ -484,6 +495,7 @@ def create_user(user_data: UserCreate, db: Session = Depends(get_db)) -> UserRes
         id=user.id,
         name=user.name,
         email=user.email,
+        phone_number=user.phone_number,
         role=user.role,
         profile_text=user.profile.profile_text,
         career_goals=user.profile.career_goals,
@@ -505,6 +517,7 @@ def get_user(user_id: UUID, db: Session = Depends(get_db)) -> UserResponse:
         id=user.id,
         name=user.name,
         email=user.email,
+        phone_number=user.phone_number,
         role=user.role,
         profile_text=user.profile.profile_text if user.profile else "",
         career_goals=user.profile.career_goals if user.profile else "",
@@ -542,6 +555,8 @@ def update_profile(
         user.profile.profile_text = profile_data.profile_text
     if profile_data.career_goals is not None:
         user.profile.career_goals = profile_data.career_goals
+    if profile_data.phone_number is not None:
+        user.phone_number = profile_data.phone_number
 
     db.commit()
     db.refresh(user)
@@ -556,6 +571,7 @@ def update_profile(
         id=user.id,
         name=user.name,
         email=user.email,
+        phone_number=user.phone_number,
         role=user.role,
         profile_text=user.profile.profile_text,
         career_goals=user.profile.career_goals,
@@ -729,6 +745,22 @@ def update_session_endpoint(
     return update_session_status(db, session_id, current_user.id, status_data)
 
 
+@app.post("/sessions/{session_id}/opt-out", status_code=status.HTTP_204_NO_CONTENT)
+def opt_out_of_mentee_endpoint(
+    session_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    session = db.get(MentorshipSession, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if current_user.role != "mentor" or current_user.id != session.mentor_id:
+        raise HTTPException(status_code=403, detail="Only the session mentor can opt out")
+    if session.status not in {"accepted", "completed"}:
+        raise HTTPException(status_code=409, detail="Only an accepted mentorship can be opted out of")
+    opt_out_mentee(db, session.mentor_id, session.mentee_id)
+
+
 async def upload_resume(
     user_id: UUID,
     file: UploadFile = File(...),
@@ -771,6 +803,7 @@ async def upload_resume(
         id=user.id,
         name=user.name,
         email=user.email,
+        phone_number=user.phone_number,
         role=user.role,
         profile_text=user.profile.profile_text,
         career_goals=user.profile.career_goals,
